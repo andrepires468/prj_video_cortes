@@ -1,0 +1,23 @@
+services:
+  api:
+    build: ./api
+    volumes:
+      - ./data/downloads:/data/downloads
+      - ./data/cortes:/data/cortes
+    ports:
+      - "5101:8000"
+    environment:
+      DOWNLOADS_DIR: /data/downloads
+      CORTES_DIR: /data/cortes
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "3101:3000"
+    environment:
+      NUXT_API_URL: http://api:8000
+      NUXT_PUBLIC_API_BASE: /api
+    depends_on:
+      - api
+    restart: unless-stopped
