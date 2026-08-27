@@ -19,6 +19,8 @@ const videoRef = ref<HTMLVideoElement | null>(null)
 const duration = ref(0)
 const currentTime = ref(0)
 const playing = ref(false)
+const volume = ref(0.6)
+const muted = ref(false)
 const loading = ref(true)
 const errorMsg = ref('')
 const markers = ref<number[]>([])
@@ -85,10 +87,45 @@ async function load() {
 
 function onLoadedMetadata() {
   const el = videoRef.value
-  if (el && el.duration && Number.isFinite(el.duration)) {
+  if (!el) return
+  if (el.duration && Number.isFinite(el.duration)) {
     duration.value = el.duration
   }
+  applyVolume()
 }
+
+function applyVolume() {
+  const el = videoRef.value
+  if (!el) return
+  el.volume = volume.value
+  el.muted = muted.value
+}
+
+function onVolumeInput(value: number | number[]) {
+  const next = Array.isArray(value) ? value[0] : value
+  volume.value = Math.min(1, Math.max(0, Number(next) || 0))
+  if (volume.value > 0 && muted.value) {
+    muted.value = false
+  }
+  applyVolume()
+}
+
+function toggleMute() {
+  if (!muted.value && volume.value === 0) {
+    volume.value = 0.6
+    muted.value = false
+  } else {
+    muted.value = !muted.value
+  }
+  applyVolume()
+}
+
+const volumeIcon = computed(() => {
+  if (muted.value || volume.value === 0) return 'mdi-volume-off'
+  if (volume.value < 0.4) return 'mdi-volume-low'
+  if (volume.value < 0.75) return 'mdi-volume-medium'
+  return 'mdi-volume-high'
+})
 
 function onTimeUpdate() {
   const el = videoRef.value
@@ -320,6 +357,25 @@ function goHome() {
               {{ formatClock(duration) }}
             </span>
 
+            <div class="volume-control">
+              <v-btn icon variant="text" size="small" @click="toggleMute">
+                <v-icon>{{ volumeIcon }}</v-icon>
+              </v-btn>
+              <v-slider
+                class="volume-slider"
+                :model-value="muted ? 0 : volume"
+                :min="0"
+                :max="1"
+                :step="0.01"
+                hide-details
+                density="compact"
+                color="primary"
+                thumb-size="14"
+                track-size="3"
+                @update:model-value="onVolumeInput"
+              />
+            </div>
+
             <v-spacer />
 
             <v-btn
@@ -463,6 +519,20 @@ function goHome() {
 .timecode-sep {
   opacity: 0.5;
   margin: 0 4px;
+}
+
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 140px;
+  max-width: 180px;
+  margin-left: 8px;
+}
+
+.volume-slider {
+  flex: 1;
+  margin-inline: 0;
 }
 
 .timeline-card {
