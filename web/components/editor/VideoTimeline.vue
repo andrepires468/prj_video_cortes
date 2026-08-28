@@ -138,7 +138,7 @@ function formatClock(seconds: number): string {
     </div>
 
     <p class="timeline-hint">
-      Espaço: play/pause · Setas ← → : ±5s · Posicione exatamente 2 linhas (botão ou duplo clique). O trecho azul entre elas será salvo.
+      Espaço: play/pause · Setas ← → : ±5s · Sem linhas: salva o vídeo inteiro (ex.: só mudar a velocidade). Duas linhas: salva o trecho azul. Uma linha não permite salvar.
     </p>
   </div>
 </template>
@@ -152,7 +152,7 @@ function formatClock(seconds: number): string {
   position: relative;
   height: 20px;
   margin-bottom: 4px;
-  color: #9aa0a6;
+  color: var(--timeline-ruler);
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
 }
@@ -166,11 +166,11 @@ function formatClock(seconds: number): string {
 .timeline-track {
   position: relative;
   height: 72px;
-  background: #1e1e1e;
+  background: var(--timeline-track);
   border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
-  border: 1px solid #333;
+  border: 1px solid var(--timeline-border);
 }
 
 .segment {
@@ -245,7 +245,7 @@ function formatClock(seconds: number): string {
   transform: translateX(-50%);
   width: 12px;
   height: 12px;
-  background: #fff;
+  background: var(--playhead);
   border-radius: 2px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
 }
@@ -257,13 +257,13 @@ function formatClock(seconds: number): string {
   left: 50%;
   width: 2px;
   margin-left: -1px;
-  background: #fff;
+  background: var(--playhead);
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
 .timeline-hint {
   margin: 8px 0 0;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-muted);
 }
 </style>

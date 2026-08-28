@@ -12,12 +12,19 @@ const loading = ref(false)
 const job = ref<JobInfo | null>(null)
 const errorMsg = ref('')
 
+const platforms = [
+  { name: 'YouTube', icon: 'mdi-youtube' },
+  { name: 'X (Twitter)', icon: 'mdi-twitter' },
+  { name: 'TikTok', icon: 'mdi-music-note' },
+  { name: 'Instagram', icon: 'mdi-instagram' },
+]
+
 async function onSubmit() {
   errorMsg.value = ''
   job.value = null
   const trimmed = url.value.trim()
   if (!trimmed) {
-    errorMsg.value = 'Informe a URL do vídeo (YouTube ou X).'
+    errorMsg.value = 'Informe a URL do vídeo (YouTube, X, TikTok ou Instagram).'
     return
   }
 
@@ -50,7 +57,7 @@ async function onSubmit() {
       <v-text-field
         v-model="url"
         label="URL do vídeo"
-        placeholder="YouTube ou X (ex.: https://x.com/.../status/...)"
+        placeholder="YouTube, X, TikTok ou Instagram"
         variant="outlined"
         density="comfortable"
         hide-details="auto"
@@ -58,6 +65,18 @@ async function onSubmit() {
         clearable
         @keyup.enter="onSubmit"
       />
+
+      <p class="platforms-hint">
+        <span
+          v-for="(platform, index) in platforms"
+          :key="platform.name"
+          class="platforms-hint__item"
+        >
+          <template v-if="index">, </template>
+          <v-icon size="16" class="platforms-hint__icon">{{ platform.icon }}</v-icon>
+          {{ platform.name }}
+        </span>
+      </p>
 
       <div class="form-actions">
         <v-btn
@@ -122,5 +141,22 @@ async function onSubmit() {
 .text-caption {
   font-size: 0.75rem;
   opacity: 0.7;
+}
+
+.platforms-hint {
+  margin: 8px 0 4px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.platforms-hint__item {
+  white-space: nowrap;
+}
+
+.platforms-hint__icon {
+  margin-right: 4px;
+  vertical-align: -3px;
+  opacity: 0.85;
 }
 </style>

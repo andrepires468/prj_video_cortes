@@ -1,5 +1,7 @@
 export type JobStatus = 'queued' | 'running' | 'done' | 'error'
 
+export type MediaFolder = 'downloads' | 'cortes'
+
 export interface JobInfo {
   id: string
   status: JobStatus
@@ -37,4 +39,9 @@ export interface CutJobInfo {
   error?: string | null
   created_at?: string
   updated_at?: string
+}
+
+export interface DeleteMediaResponse {
+  deleted: string
+  cortes_deleted: number
 }

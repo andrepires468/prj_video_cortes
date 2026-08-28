@@ -13,7 +13,7 @@ class JobStatus(str, Enum):
 
 
 class DownloadRequest(BaseModel):
-    url: str = Field(..., min_length=8, description="URL do vídeo (YouTube ou X/Twitter)")
+    url: str = Field(..., min_length=8, description="URL do vídeo (YouTube, X, TikTok ou Instagram)")
 
 
 class JobCreated(BaseModel):
@@ -44,6 +44,11 @@ class FileListResponse(BaseModel):
     files: list[FileInfo]
 
 
+class DeleteMediaResponse(BaseModel):
+    deleted: str
+    cortes_deleted: int = 0
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
 
@@ -63,8 +68,13 @@ class CutSegment(BaseModel):
 
 class CutRequest(BaseModel):
     filename: str = Field(..., min_length=1)
+    source_filename: Optional[str] = Field(
+        default=None,
+        description="Corte em data/cortes a usar como origem; o arquivo gerado continua ligado ao vídeo original",
+    )
     markers: list[float] = Field(default_factory=list)
     segments: list[CutSegment] | None = None
+    speed: float = Field(1.0, ge=0.25, le=2.0, description="Velocidade do corte gerado (0.25–2.0)")
 
 
 class CutJobInfo(BaseModel):

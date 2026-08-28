@@ -1,15 +1,25 @@
 <script setup lang="ts">
 import type { FileInfo } from '~/types/downloads'
 
-const { listFiles, listCortes, mediaThumbUrl, mediaStreamUrl, deleteMedia } = useDownloads()
+const props = defineProps<{
+  filename: string
+  activeCut?: string
+}>()
+
+const emit = defineEmits<{
+  play: []
+}>()
+
+const { listCortes, mediaThumbUrl, mediaStreamUrl, deleteMedia } = useDownloads()
 const swal = useSwal()
 
 const files = ref<FileInfo[]>([])
 const loading = ref(false)
 const errorMsg = ref('')
-const removing = ref<string | null>(null)
+const brokenThumbs = ref<Set<string>>(new Set())
 const playerOpen = ref(false)
 const playingFile = ref<FileInfo | null>(null)
+const removing = ref<string | null>(null)
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -26,53 +36,74 @@ function formatDate(iso: string): string {
   }
 }
 
-function editorLink(name: string): string {
-  return `/editor?file=${encodeURIComponent(name)}`
+function thumbSrc(file: FileInfo): string {
+  return mediaThumbUrl(file.name, 'cortes')
 }
 
-function thumbSrc(file: FileInfo): string | null {
-  if (!file.thumb) return null
-  return mediaThumbUrl(file.name)
+function showThumb(file: FileInfo): boolean {
+  return !brokenThumbs.value.has(file.name)
+}
+
+function onThumbError(name: string) {
+  const next = new Set(brokenThumbs.value)
+  next.add(name)
+  brokenThumbs.value = next
 }
 
 function playFile(file: FileInfo) {
+  emit('play')
   playingFile.value = file
   playerOpen.value = true
 }
 
+function downloadHref(file: FileInfo): string {
+  return mediaStreamUrl(file.name, 'cortes', true)
+}
+
+function editLink(cutName: string) {
+  return {
+    path: '/editor',
+    query: {
+      file: props.filename,
+      cut: cutName,
+    },
+  }
+}
+
+function isEditing(cutName: string) {
+  return Boolean(props.activeCut) && props.activeCut === cutName
+}
+
 const playingSrc = computed(() =>
-  playingFile.value ? mediaStreamUrl(playingFile.value.name, 'downloads') : '',
+  playingFile.value ? mediaStreamUrl(playingFile.value.name, 'cortes') : '',
 )
 
 async function refresh() {
+  if (!props.filename) {
+    files.value = []
+    return
+  }
   loading.value = true
   errorMsg.value = ''
   try {
-    files.value = await listFiles()
+    files.value = await listCortes(props.filename)
+    brokenThumbs.value = new Set()
   } catch (err: unknown) {
-    const e = err as { message?: string }
-    errorMsg.value = e?.message || 'Falha ao listar arquivos.'
+    const e = err as { data?: { detail?: string }; message?: string }
+    errorMsg.value = e?.data?.detail || e?.message || 'Falha ao listar cortes.'
   } finally {
     loading.value = false
   }
 }
 
+watch(() => props.filename, refresh, { immediate: true })
+
 async function removeFile(file: FileInfo) {
   if (removing.value) return
-  let cortesCount = 0
-  let cortesUnknown = false
-  try {
-    const cortes = await listCortes(file.name)
-    cortesCount = cortes.length
-  } catch {
-    cortesUnknown = true
-  }
 
   const confirmed = await confirmDangerousDelete({
     filename: file.name,
-    kind: 'video',
-    cortesCount,
-    cortesUnknown,
+    kind: 'corte',
   })
   if (!confirmed) return
 
@@ -82,11 +113,11 @@ async function removeFile(file: FileInfo) {
       playerOpen.value = false
       playingFile.value = null
     }
-    await deleteMedia(file.name, 'downloads')
+    await deleteMedia(file.name, 'cortes')
     await refresh()
     await swal.fire({
       icon: 'success',
-      title: 'Vídeo removido',
+      title: 'Corte removido',
       timer: 1800,
       showConfirmButton: false,
       theme: swalTheme(),
@@ -96,7 +127,7 @@ async function removeFile(file: FileInfo) {
     await swal.fire({
       icon: 'error',
       title: 'Não foi possível remover',
-      text: e?.data?.detail || e?.message || 'Falha ao excluir o vídeo.',
+      text: e?.data?.detail || e?.message || 'Falha ao excluir o corte.',
       theme: swalTheme(),
     })
   } finally {
@@ -104,17 +135,13 @@ async function removeFile(file: FileInfo) {
   }
 }
 
-onMounted(() => {
-  refresh()
-})
-
 defineExpose({ refresh })
 </script>
 
 <template>
-  <section class="page-section">
+  <section class="page-section cuts-section">
     <div class="list-toolbar">
-      <h2>Arquivos baixados</h2>
+      <h2>Cortes deste vídeo</h2>
       <v-btn
         variant="outlined"
         :loading="loading"
@@ -145,7 +172,7 @@ defineExpose({ refresh })
       variant="tonal"
       density="comfortable"
     >
-      Nenhum arquivo na pasta de downloads.
+      Nenhum corte deste vídeo ainda. Salve um trecho para vê-lo aqui.
     </v-alert>
 
     <div v-else class="files-grid">
@@ -153,6 +180,7 @@ defineExpose({ refresh })
         v-for="file in files"
         :key="file.name"
         class="file-card"
+        :class="{ 'file-card--active': isEditing(file.name) }"
         variant="outlined"
       >
         <div
@@ -164,11 +192,12 @@ defineExpose({ refresh })
           @keyup.enter="playFile(file)"
         >
           <img
-            v-if="thumbSrc(file)"
+            v-if="showThumb(file)"
             class="thumb-img"
-            :src="thumbSrc(file)!"
+            :src="thumbSrc(file)"
             :alt="file.name"
             loading="lazy"
+            @error="onThumbError(file.name)"
           >
           <div v-else class="thumb-placeholder">
             <v-icon size="48" color="grey">mdi-video-outline</v-icon>
@@ -192,12 +221,33 @@ defineExpose({ refresh })
             size="small"
             color="primary"
             variant="tonal"
-            prepend-icon="mdi-content-cut"
-            :to="editorLink(file.name)"
+            prepend-icon="mdi-play"
+            :disabled="removing === file.name"
+            block
+            @click="playFile(file)"
+          >
+            Assistir
+          </v-btn>
+          <v-btn
+            size="small"
+            color="primary"
+            :variant="isEditing(file.name) ? 'flat' : 'tonal'"
+            prepend-icon="mdi-pencil"
+            :to="editLink(file.name)"
             :disabled="removing === file.name"
             block
           >
-            Cortar
+            {{ isEditing(file.name) ? 'Editando' : 'Editar' }}
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="text"
+            prepend-icon="mdi-download"
+            :href="downloadHref(file)"
+            :disabled="removing === file.name"
+            block
+          >
+            Baixar
           </v-btn>
           <v-btn
             size="small"
@@ -224,6 +274,10 @@ defineExpose({ refresh })
 </template>
 
 <style scoped>
+.cuts-section {
+  margin-top: 24px;
+}
+
 .mb-3 {
   margin-bottom: 12px;
 }
@@ -245,6 +299,10 @@ defineExpose({ refresh })
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-card);
+}
+
+.file-card--active {
+  outline: 2px solid rgb(var(--v-theme-primary));
 }
 
 .thumb-wrap {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from pathlib import Path
 
 
 def remove_special_chars(name: str) -> str:
@@ -21,6 +22,12 @@ def remove_special_chars(name: str) -> str:
     text = re.sub(r"_+", "_", text)
     text = text.strip("_-")
     return text
+
+
+def safe_video_stem(name: str) -> str:
+    """Stem sanitizado usado nos nomes de corte ({stem}_corte_01.mp4)."""
+    stem = remove_special_chars(Path(name).stem)
+    return stem[:80] if stem else "clip"
 
 
 def build_video_filename(title: str, video_id: str, ext: str) -> str:

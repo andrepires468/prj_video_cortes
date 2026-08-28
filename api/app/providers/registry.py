@@ -1,4 +1,6 @@
 from app.providers.base import DownloadProvider
+from app.providers.instagram import InstagramProvider
+from app.providers.tiktok import TikTokProvider
 from app.providers.x import XProvider
 from app.providers.youtube import YoutubeProvider
 
@@ -6,6 +8,8 @@ from app.providers.youtube import YoutubeProvider
 _providers: list[DownloadProvider] = [
     YoutubeProvider(),
     XProvider(),
+    TikTokProvider(),
+    InstagramProvider(),
 ]
 
 
@@ -14,7 +18,7 @@ def get_provider(url: str) -> DownloadProvider:
         if provider.can_handle(url):
             return provider
     raise ValueError(
-        "URL não suportada. Aceitos: YouTube e X (Twitter)."
+        "URL não suportada. Aceitos: YouTube, X (Twitter), TikTok e Instagram."
     )
 
 

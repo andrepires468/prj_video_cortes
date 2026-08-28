@@ -1,4 +1,4 @@
-import type { CutJobInfo, FileInfo, JobInfo, MediaInfo } from '~/types/downloads'
+import type { CutJobInfo, DeleteMediaResponse, FileInfo, JobInfo, MediaFolder, MediaInfo } from '~/types/downloads'
 
 export function useDownloads() {
   const config = useRuntimeConfig()
@@ -17,6 +17,13 @@ export function useDownloads() {
 
   async function listFiles(): Promise<FileInfo[]> {
     const res = await $fetch<{ files: FileInfo[] }>(`${base}/downloads/files`)
+    return res.files
+  }
+
+  async function listCortes(filename: string): Promise<FileInfo[]> {
+    const res = await $fetch<{ files: FileInfo[] }>(`${base}/editor/cortes`, {
+      query: { filename },
+    })
     return res.files
   }
 
@@ -43,17 +50,40 @@ export function useDownloads() {
     })
   }
 
-  function mediaStreamUrl(filename: string): string {
-    return `${base}/media/stream?name=${encodeURIComponent(filename)}`
+  function mediaQuery(filename: string, folder: MediaFolder, extra?: Record<string, string>) {
+    const params = new URLSearchParams({ name: filename, folder, ...extra })
+    return params.toString()
   }
 
-  function mediaThumbUrl(filename: string): string {
-    return `${base}/media/thumb?name=${encodeURIComponent(filename)}`
+  function mediaStreamUrl(
+    filename: string,
+    folder: MediaFolder = 'downloads',
+    download = false,
+  ): string {
+    const extra = download ? { download: '1' } : undefined
+    return `${base}/media/stream?${mediaQuery(filename, folder, extra)}`
   }
 
-  async function getMediaInfo(filename: string): Promise<MediaInfo> {
+  function mediaThumbUrl(filename: string, folder: MediaFolder = 'downloads'): string {
+    return `${base}/media/thumb?${mediaQuery(filename, folder)}`
+  }
+
+  async function getMediaInfo(
+    filename: string,
+    folder: MediaFolder = 'downloads',
+  ): Promise<MediaInfo> {
     return await $fetch<MediaInfo>(`${base}/media/info`, {
-      query: { name: filename },
+      query: { name: filename, folder },
+    })
+  }
+
+  async function deleteMedia(
+    filename: string,
+    folder: MediaFolder = 'downloads',
+  ): Promise<DeleteMediaResponse> {
+    return await $fetch<DeleteMediaResponse>(`${base}/media`, {
+      method: 'DELETE',
+      query: { name: filename, folder },
     })
   }
 
@@ -61,10 +91,18 @@ export function useDownloads() {
     filename: string,
     markers: number[],
     segments?: { start: number; end: number }[],
+    speed = 1,
+    sourceFilename?: string,
   ): Promise<CutJobInfo> {
     return await $fetch<CutJobInfo>(`${base}/editor/cuts`, {
       method: 'POST',
-      body: { filename, markers, segments },
+      body: {
+        filename,
+        markers,
+        segments,
+        speed,
+        source_filename: sourceFilename || undefined,
+      },
     })
   }
 
@@ -99,10 +137,12 @@ export function useDownloads() {
     startDownload,
     getJob,
     listFiles,
+    listCortes,
     pollJob,
     mediaStreamUrl,
     mediaThumbUrl,
     getMediaInfo,
+    deleteMedia,
     startCuts,
     getCutJob,
     pollCutJob,

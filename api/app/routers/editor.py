@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
-from app.models.schemas import CutJobInfo, CutRequest, JobCreated, JobStatus
+from app.models.schemas import CutJobInfo, CutRequest, FileListResponse, JobCreated, JobStatus
 from app.services import cutter
+from app.services.storage import list_cortes, resolve_download_file
 
 router = APIRouter(prefix="/api/editor", tags=["editor"])
+
+
+@router.get("/cortes", response_model=FileListResponse)
+def list_video_cortes(filename: str = Query(..., min_length=1)) -> FileListResponse:
+    resolve_download_file(filename)
+    return FileListResponse(files=list_cortes(filename))
 
 
 @router.post("/cuts", response_model=JobCreated)
@@ -15,6 +22,8 @@ def start_cuts(body: CutRequest) -> JobCreated:
             filename=body.filename,
             markers=body.markers,
             segments=body.segments,
+            speed=body.speed,
+            source_filename=body.source_filename,
         )
     except HTTPException:
         raise

@@ -15,6 +15,19 @@ const filename = computed(() => {
   return typeof raw === 'string' ? raw : ''
 })
 
+const cutFilename = computed(() => {
+  const raw = route.query.cut
+  return typeof raw === 'string' ? raw : ''
+})
+
+const editingCut = computed(() => Boolean(cutFilename.value))
+
+const mediaFolder = computed(() => (editingCut.value ? 'cortes' : 'downloads'))
+
+const mediaName = computed(() =>
+  editingCut.value ? cutFilename.value : filename.value,
+)
+
 const videoRef = ref<HTMLVideoElement | null>(null)
 const duration = ref(0)
 const currentTime = ref(0)
@@ -28,26 +41,81 @@ const selectedMarkerIndex = ref<number | null>(null)
 const exporting = ref(false)
 const exportJob = ref<CutJobInfo | null>(null)
 const successMsg = ref('')
+const cutListRef = ref<{ refresh: () => Promise<void> } | null>(null)
 
 const MAX_MARKERS = 2
+const SPEED_MIN = 0.25
+const SPEED_MAX = 2
+const SPEED_STEP = 0.1
+const speed = ref(1)
+const speedText = ref('1.0')
 
 const streamUrl = computed(() =>
-  filename.value ? mediaStreamUrl(filename.value) : '',
+  mediaName.value ? mediaStreamUrl(mediaName.value, mediaFolder.value) : '',
 )
 
 const sortedMarkerTimes = computed(() =>
   [...markers.value].sort((a, b) => a - b),
 )
 
-const canSave = computed(
-  () => markers.value.length === MAX_MARKERS && !loading.value && !exporting.value,
-)
+const canSave = computed(() => {
+  if (loading.value || exporting.value || !filename.value || duration.value <= 0) {
+    return false
+  }
+  const count = markers.value.length
+  return count === 0 || count === MAX_MARKERS
+})
 
 const selectionRange = computed(() => {
   if (sortedMarkerTimes.value.length !== 2) return null
   const [start, end] = sortedMarkerTimes.value
   return { start, end }
 })
+
+const outputDuration = computed(() => {
+  if (!duration.value) return null
+  if (selectionRange.value) {
+    return (selectionRange.value.end - selectionRange.value.start) / speed.value
+  }
+  if (markers.value.length === 0) {
+    return duration.value / speed.value
+  }
+  return null
+})
+
+function formatSpeed(value: number): string {
+  return Number.isInteger(value * 10) ? value.toFixed(1) : value.toFixed(2)
+}
+
+function clampSpeed(value: number): number {
+  const rounded = Math.round(value * 100) / 100
+  return Math.min(SPEED_MAX, Math.max(SPEED_MIN, rounded))
+}
+
+function applyPlaybackRate() {
+  const el = videoRef.value
+  if (!el) return
+  el.playbackRate = speed.value
+}
+
+function commitSpeed(raw: string | number) {
+  const parsed = typeof raw === 'number' ? raw : Number.parseFloat(String(raw).replace(',', '.'))
+  if (!Number.isFinite(parsed)) {
+    speedText.value = formatSpeed(speed.value)
+    return
+  }
+  speed.value = clampSpeed(parsed)
+  speedText.value = formatSpeed(speed.value)
+  applyPlaybackRate()
+}
+
+function nudgeSpeed(delta: number) {
+  commitSpeed(speed.value + delta)
+}
+
+function onSpeedTyped() {
+  commitSpeed(speedText.value)
+}
 
 function formatClock(seconds: number): string {
   const total = Math.max(0, seconds)
@@ -67,6 +135,8 @@ async function load() {
   successMsg.value = ''
   markers.value = []
   selectedMarkerIndex.value = null
+  speed.value = 1
+  speedText.value = '1.0'
 
   if (!filename.value) {
     errorMsg.value = 'Nenhum arquivo selecionado.'
@@ -75,7 +145,7 @@ async function load() {
   }
 
   try {
-    const info = await getMediaInfo(filename.value)
+    const info = await getMediaInfo(mediaName.value, mediaFolder.value)
     duration.value = info.duration
   } catch (err: unknown) {
     const e = err as { data?: { detail?: string }; message?: string }
@@ -92,6 +162,7 @@ function onLoadedMetadata() {
     duration.value = el.duration
   }
   applyVolume()
+  applyPlaybackRate()
 }
 
 function applyVolume() {
@@ -194,9 +265,29 @@ function selectMarker(index: number) {
 }
 
 async function exportCuts() {
-  if (!filename.value || markers.value.length !== MAX_MARKERS || !selectionRange.value) {
-    errorMsg.value = 'Posicione exatamente 2 linhas de corte para salvar o trecho entre elas.'
+  if (!filename.value || duration.value <= 0) {
+    errorMsg.value = 'Nenhum arquivo selecionado.'
     return
+  }
+  if (markers.value.length === 1) {
+    errorMsg.value =
+      'Com 1 linha de corte não é possível salvar. Posicione a segunda linha ou remova a linha para salvar o vídeo inteiro.'
+    return
+  }
+  if (markers.value.length > MAX_MARKERS) {
+    errorMsg.value = 'Posicione no máximo 2 linhas de corte.'
+    return
+  }
+
+  let start = 0
+  let end = duration.value
+  if (markers.value.length === MAX_MARKERS) {
+    if (!selectionRange.value) {
+      errorMsg.value = 'Posicione exatamente 2 linhas de corte para salvar o trecho entre elas.'
+      return
+    }
+    start = selectionRange.value.start
+    end = selectionRange.value.end
   }
 
   exporting.value = true
@@ -205,8 +296,13 @@ async function exportCuts() {
   exportJob.value = null
 
   try {
-    const { start, end } = selectionRange.value
-    const created = await startCuts(filename.value, markers.value, [{ start, end }])
+    const created = await startCuts(
+      filename.value,
+      markers.value,
+      [{ start, end }],
+      speed.value,
+      cutFilename.value || undefined,
+    )
     exportJob.value = created
     const finalJob = await pollCutJob(created.id, (job) => {
       exportJob.value = job
@@ -215,6 +311,7 @@ async function exportCuts() {
       errorMsg.value = finalJob.error || finalJob.message || 'Falha ao exportar.'
     } else {
       successMsg.value = `Arquivo salvo em data/cortes: ${finalJob.outputs.join(', ')}`
+      await cutListRef.value?.refresh()
     }
   } catch (err: unknown) {
     const e = err as { data?: { detail?: string }; message?: string }
@@ -253,10 +350,19 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
 })
 
-watch(filename, load)
+watch([filename, cutFilename], load)
+
+function pauseMainVideo() {
+  videoRef.value?.pause()
+}
 
 function goHome() {
   router.push('/')
+}
+
+function editOriginal() {
+  if (!filename.value) return
+  router.push({ path: '/editor', query: { file: filename.value } })
 }
 </script>
 
@@ -270,6 +376,9 @@ function goHome() {
         <div class="editor-title">
           <h1>Editor de cortes</h1>
           <p v-if="filename" class="filename" :title="filename">{{ filename }}</p>
+          <p v-if="editingCut" class="filename filename-cut" :title="cutFilename">
+            Editando corte: {{ cutFilename }}
+          </p>
         </div>
         <v-spacer />
         <v-btn
@@ -310,6 +419,21 @@ function goHome() {
         </div>
       </v-alert>
 
+      <v-alert
+        v-if="editingCut"
+        type="info"
+        variant="tonal"
+        density="comfortable"
+        class="mb-3"
+      >
+        Você está editando um corte. O novo arquivo entra na lista do vídeo original.
+        <div class="mt-2">
+          <v-btn size="small" variant="text" @click="editOriginal">
+            Voltar ao vídeo original
+          </v-btn>
+        </div>
+      </v-alert>
+
       <v-progress-linear
         v-if="exporting"
         class="mb-3"
@@ -328,6 +452,7 @@ function goHome() {
         <v-card class="preview-card" variant="flat">
           <div class="preview-stage">
             <video
+              :key="streamUrl"
               ref="videoRef"
               class="preview-video"
               :src="streamUrl"
@@ -376,6 +501,45 @@ function goHome() {
               />
             </div>
 
+            <div class="speed-control">
+              <span class="speed-label">Velocidade</span>
+              <v-btn
+                icon
+                variant="text"
+                size="x-small"
+                :disabled="speed <= SPEED_MIN || exporting"
+                aria-label="Diminuir velocidade"
+                @click="nudgeSpeed(-SPEED_STEP)"
+              >
+                <v-icon>mdi-chevron-down</v-icon>
+              </v-btn>
+              <input
+                class="speed-input"
+                type="number"
+                min="0.25"
+                max="2"
+                step="0.01"
+                :disabled="exporting"
+                v-model="speedText"
+                aria-label="Velocidade do corte"
+                @change="onSpeedTyped"
+                @blur="onSpeedTyped"
+                @keydown.up.prevent="nudgeSpeed(SPEED_STEP)"
+                @keydown.down.prevent="nudgeSpeed(-SPEED_STEP)"
+              >
+              <v-btn
+                icon
+                variant="text"
+                size="x-small"
+                :disabled="speed >= SPEED_MAX || exporting"
+                aria-label="Aumentar velocidade"
+                @click="nudgeSpeed(SPEED_STEP)"
+              >
+                <v-icon>mdi-chevron-up</v-icon>
+              </v-btn>
+              <span class="speed-unit">x</span>
+            </div>
+
             <v-spacer />
 
             <v-btn
@@ -414,9 +578,18 @@ function goHome() {
                 {{ formatClock(selectionRange.start) }}
                 →
                 {{ formatClock(selectionRange.end) }}
+                <template v-if="outputDuration != null && speed !== 1">
+                  · saída {{ formatClock(outputDuration) }} a {{ formatSpeed(speed) }}x
+                </template>
+              </template>
+              <template v-else-if="markers.length === 1">
+                1/{{ MAX_MARKERS }} linhas · adicione a segunda ou remova para salvar o vídeo inteiro
               </template>
               <template v-else>
-                {{ markers.length }}/{{ MAX_MARKERS }} linhas · posicione 2 para salvar
+                Vídeo inteiro
+                <template v-if="outputDuration != null && speed !== 1">
+                  · saída {{ formatClock(outputDuration) }} a {{ formatSpeed(speed) }}x
+                </template>
               </template>
             </span>
           </v-card-title>
@@ -434,6 +607,14 @@ function goHome() {
           </v-card-text>
         </v-card>
       </template>
+
+      <EditorCutList
+        v-if="filename"
+        ref="cutListRef"
+        :filename="filename"
+        :active-cut="cutFilename"
+        @play="pauseMainVideo"
+      />
     </v-container>
   </div>
 </template>
@@ -441,7 +622,7 @@ function goHome() {
 <style scoped>
 .editor-page {
   min-height: 100%;
-  background: #eceff1;
+  background: var(--bg-page);
 }
 
 .editor-container {
@@ -462,20 +643,25 @@ function goHome() {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 500;
+  color: var(--text-primary);
 }
 
 .filename {
   margin: 2px 0 0;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted);
   max-width: 420px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.filename-cut {
+  color: var(--text-primary);
+}
+
 .preview-card {
-  background: #121212;
+  background: var(--bg-preview);
   color: #fff;
   border-radius: 8px;
   overflow: hidden;
@@ -486,7 +672,7 @@ function goHome() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: var(--bg-video);
   min-height: 320px;
   max-height: 52vh;
 }
@@ -497,7 +683,7 @@ function goHome() {
   max-height: 52vh;
   height: auto;
   cursor: pointer;
-  background: #000;
+  background: var(--bg-video);
 }
 
 .transport {
@@ -506,14 +692,14 @@ function goHome() {
   gap: 8px;
   padding: 10px 16px;
   flex-wrap: wrap;
-  background: #1a1a1a;
+  background: var(--bg-transport);
 }
 
 .timecode {
   margin-left: 8px;
   font-variant-numeric: tabular-nums;
   font-size: 0.95rem;
-  color: #e0e0e0;
+  color: var(--text-on-preview);
 }
 
 .timecode-sep {
@@ -535,8 +721,60 @@ function goHome() {
   margin-inline: 0;
 }
 
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  padding: 2px 6px 2px 10px;
+  border: 1px solid var(--border-speed);
+  border-radius: 6px;
+  background: var(--bg-speed);
+}
+
+.speed-label {
+  font-size: 0.75rem;
+  color: var(--text-speed);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.speed-input {
+  width: 3.4rem;
+  height: 28px;
+  border: 1px solid var(--border-speed-input);
+  border-radius: 4px;
+  background: var(--bg-speed-input);
+  color: #fff;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+
+.speed-input:focus {
+  outline: 1px solid var(--focus-ring);
+  border-color: var(--focus-ring);
+}
+
+.speed-input::-webkit-outer-spin-button,
+.speed-input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.speed-input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.speed-unit {
+  font-size: 0.8rem;
+  color: var(--text-speed);
+  margin-left: 2px;
+}
+
 .timeline-card {
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .timeline-card-title {
@@ -550,7 +788,7 @@ function goHome() {
 .marker-count {
   font-size: 0.85rem;
   font-weight: 400;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .editor-loading {
@@ -559,7 +797,7 @@ function goHome() {
   gap: 16px;
   padding: 48px;
   justify-content: center;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .mb-3 {
