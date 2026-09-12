@@ -7,15 +7,8 @@ function onCompleted() {
 </script>
 
 <template>
-  <v-container class="py-6" max-width="960">
+  <div class="page-shell home-page">
     <DownloadForm @completed="onCompleted" />
     <DownloadList ref="listRef" />
-  </v-container>
+  </div>
 </template>
-
-<style scoped>
-.py-6 {
-  padding-top: 24px;
-  padding-bottom: 24px;
-}
-</style>

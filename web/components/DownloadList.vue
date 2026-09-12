@@ -2,10 +2,11 @@
 import type { FileInfo } from '~/types/downloads'
 
 const { listFiles, listCortes, mediaThumbUrl, mediaStreamUrl, deleteMedia } = useDownloads()
+const { setDownloadCount } = useLibraryStats()
 const swal = useSwal()
 
 const files = ref<FileInfo[]>([])
-const loading = ref(false)
+const loading = ref(true)
 const errorMsg = ref('')
 const removing = ref<string | null>(null)
 const playerOpen = ref(false)
@@ -20,7 +21,13 @@ function formatSize(bytes: number): string {
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('pt-BR')
+    return new Date(iso).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   } catch {
     return iso
   }
@@ -49,6 +56,7 @@ async function refresh() {
   errorMsg.value = ''
   try {
     files.value = await listFiles()
+    setDownloadCount(files.value.length)
   } catch (err: unknown) {
     const e = err as { message?: string }
     errorMsg.value = e?.message || 'Falha ao listar arquivos.'
@@ -116,8 +124,10 @@ defineExpose({ refresh })
     <div class="list-toolbar">
       <h2>Arquivos baixados</h2>
       <v-btn
+        class="refresh-btn"
         variant="outlined"
-        :loading="loading"
+        rounded="xl"
+        :disabled="loading"
         prepend-icon="mdi-refresh"
         @click="refresh"
       >
@@ -136,7 +146,7 @@ defineExpose({ refresh })
     </v-alert>
 
     <div v-if="loading && files.length === 0" class="grid-loading">
-      <v-progress-circular indeterminate color="primary" />
+      <span class="app-spinner" role="status" aria-label="Carregando arquivos" />
     </div>
 
     <v-alert
@@ -149,11 +159,10 @@ defineExpose({ refresh })
     </v-alert>
 
     <div v-else class="files-grid">
-      <v-card
+      <article
         v-for="file in files"
         :key="file.name"
         class="file-card"
-        variant="outlined"
       >
         <div
           class="thumb-wrap"
@@ -174,45 +183,46 @@ defineExpose({ refresh })
             <v-icon size="48" color="grey">mdi-video-outline</v-icon>
           </div>
           <div class="thumb-play" aria-hidden="true">
-            <v-icon size="52">mdi-play-circle</v-icon>
+            <span class="thumb-play-icon">
+              <v-icon size="26">mdi-play</v-icon>
+            </span>
           </div>
         </div>
 
-        <v-card-text class="file-meta">
+        <div class="file-meta">
           <p class="file-name" :title="file.name">{{ file.name }}</p>
           <p class="file-sub">
             <span class="file-size">{{ formatSize(file.size) }}</span>
-            <span class="file-dot">·</span>
             <span>{{ formatDate(file.mtime) }}</span>
           </p>
-        </v-card-text>
+        </div>
 
-        <v-card-actions class="file-actions">
+        <div class="file-actions">
           <v-btn
+            class="action-cut"
             size="small"
-            color="primary"
-            variant="tonal"
+            variant="outlined"
+            rounded="lg"
             prepend-icon="mdi-content-cut"
             :to="editorLink(file.name)"
             :disabled="removing === file.name"
-            block
           >
             Cortar
           </v-btn>
           <v-btn
+            class="action-remove"
             size="small"
-            color="error"
-            variant="tonal"
+            variant="outlined"
+            rounded="lg"
             prepend-icon="mdi-delete-outline"
             :loading="removing === file.name"
             :disabled="!!removing"
-            block
             @click="removeFile(file)"
           >
             Remover
           </v-btn>
-        </v-card-actions>
-      </v-card>
+        </div>
+      </article>
     </div>
 
     <VideoPlayerModal
@@ -226,103 +236,5 @@ defineExpose({ refresh })
 <style scoped>
 .mb-3 {
   margin-bottom: 12px;
-}
-
-.grid-loading {
-  display: flex;
-  justify-content: center;
-  padding: 48px 0;
-}
-
-.files-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
-}
-
-.file-card {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-card);
-}
-
-.thumb-wrap {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  background: var(--bg-thumb);
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.thumb-play {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  background: rgb(0 0 0 / 28%);
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
-}
-
-.thumb-wrap:hover .thumb-play,
-.thumb-wrap:focus .thumb-play,
-.thumb-wrap:focus-visible .thumb-play {
-  opacity: 1;
-}
-
-.thumb-img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.thumb-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  background: var(--bg-thumb-placeholder);
-}
-
-.file-meta {
-  padding-top: 12px;
-  padding-bottom: 4px;
-}
-
-.file-name {
-  margin: 0 0 6px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  line-height: 1.3;
-  color: var(--text-primary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  word-break: break-word;
-}
-
-.file-sub {
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.file-dot {
-  margin: 0 4px;
-}
-
-.file-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px 12px;
-  margin-top: auto;
 }
 </style>

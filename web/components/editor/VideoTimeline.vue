@@ -40,6 +40,22 @@ const playheadLeft = computed(() => {
   return Math.min(100, Math.max(0, (props.currentTime / props.duration) * 100))
 })
 
+const waveBars = computed(() => {
+  const count = 96
+  const seed = Math.max(1, Math.round(props.duration * 17))
+  const bars: { height: number; played: boolean }[] = []
+  for (let i = 0; i < count; i++) {
+    const n = Math.sin((i + 1) * 12.9898 + seed) * 43758.5453
+    const frac = n - Math.floor(n)
+    const height = 18 + frac * 72
+    const played = props.duration
+      ? (i / count) * props.duration <= props.currentTime
+      : false
+    bars.push({ height, played })
+  }
+  return bars
+})
+
 function timeFromClientX(clientX: number): number {
   const el = trackRef.value
   if (!el || !props.duration) return 0
@@ -60,6 +76,13 @@ function onTrackDblClick(e: MouseEvent) {
   const time = timeFromClientX(e.clientX)
   emit('add-marker', time)
   emit('seek', time)
+}
+
+function onTrackPointer(e: PointerEvent) {
+  if (e.buttons !== 1) return
+  const target = e.target as HTMLElement
+  if (target.closest('.marker')) return
+  emit('seek', timeFromClientX(e.clientX))
 }
 
 function markerLeft(time: number): string {
@@ -94,31 +117,30 @@ function formatClock(seconds: number): string {
 
 <template>
   <div class="timeline">
-    <div class="timeline-ruler">
-      <span
-        v-for="tick in rulerTicks"
-        :key="tick.time"
-        class="ruler-tick"
-        :style="{ left: markerLeft(tick.time) }"
-      >
-        {{ tick.label }}
-      </span>
-    </div>
-
     <div
       ref="trackRef"
       class="timeline-track"
       @click="onTrackClick"
       @dblclick="onTrackDblClick"
+      @pointerdown="onTrackPointer"
+      @pointermove="onTrackPointer"
     >
+      <div class="wave" aria-hidden="true">
+        <span
+          v-for="(bar, index) in waveBars"
+          :key="index"
+          class="wave-bar"
+          :class="{ played: bar.played }"
+          :style="{ height: `${bar.height}%` }"
+        />
+      </div>
+
       <div
         v-if="selection"
         class="segment"
         :style="{ left: `${selection.left}%`, width: `${selection.width}%` }"
         :title="`Trecho: ${formatClock(selection.start)} → ${formatClock(selection.end)}`"
-      >
-        <span class="segment-label">Seleção</span>
-      </div>
+      />
 
       <button
         v-for="marker in sortedMarkers"
@@ -137,9 +159,16 @@ function formatClock(seconds: number): string {
       </div>
     </div>
 
-    <p class="timeline-hint">
-      Espaço: play/pause · Setas ← → : ±5s · Sem linhas: salva o vídeo inteiro (ex.: só mudar a velocidade). Duas linhas: salva o trecho azul. Uma linha não permite salvar.
-    </p>
+    <div class="timeline-ruler">
+      <span
+        v-for="tick in rulerTicks"
+        :key="tick.time"
+        class="ruler-tick"
+        :style="{ left: markerLeft(tick.time) }"
+      >
+        {{ tick.label }}
+      </span>
+    </div>
   </div>
 </template>
 
@@ -148,47 +177,44 @@ function formatClock(seconds: number): string {
   user-select: none;
 }
 
-.timeline-ruler {
-  position: relative;
-  height: 20px;
-  margin-bottom: 4px;
-  color: var(--timeline-ruler);
-  font-size: 0.7rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.ruler-tick {
-  position: absolute;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-
 .timeline-track {
   position: relative;
-  height: 72px;
+  height: 92px;
   background: var(--timeline-track);
-  border-radius: 6px;
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
-  border: 1px solid var(--timeline-border);
+  touch-action: none;
+}
+
+.wave {
+  position: absolute;
+  inset: 14px 8px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.wave-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px;
+  background: #4b5568;
+  opacity: 0.85;
+}
+
+.wave-bar.played {
+  background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
 }
 
 .segment {
   position: absolute;
-  top: 12px;
-  bottom: 12px;
-  background: linear-gradient(180deg, #3d7eff 0%, #2563eb 100%);
-  opacity: 0.85;
-  box-sizing: border-box;
-}
-
-.segment-label {
-  position: absolute;
-  left: 6px;
-  top: 4px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
+  top: 10px;
+  bottom: 10px;
+  background: rgb(37 99 235 / 22%);
+  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 45%);
+  pointer-events: none;
 }
 
 .marker {
@@ -199,7 +225,7 @@ function formatClock(seconds: number): string {
   margin-left: -1.5px;
   padding: 0;
   border: none;
-  background: #ff5252;
+  background: #fb7185;
   cursor: pointer;
   z-index: 3;
 }
@@ -214,19 +240,19 @@ function formatClock(seconds: number): string {
   height: 0;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-top: 8px solid #ff5252;
+  border-top: 8px solid #fb7185;
 }
 
 .marker.selected,
 .marker:hover {
-  background: #ffeb3b;
+  background: #fbbf24;
   width: 4px;
   margin-left: -2px;
 }
 
 .marker.selected::before,
 .marker:hover::before {
-  border-top-color: #ffeb3b;
+  border-top-color: #fbbf24;
 }
 
 .playhead {
@@ -240,30 +266,38 @@ function formatClock(seconds: number): string {
 
 .playhead-head {
   position: absolute;
-  top: -2px;
+  top: 4px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) rotate(45deg);
   width: 12px;
   height: 12px;
   background: var(--playhead);
   border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 2px rgb(11 14 26 / 70%);
 }
 
 .playhead-line {
   position: absolute;
-  top: 10px;
+  top: 12px;
   bottom: 0;
   left: 50%;
   width: 2px;
   margin-left: -1px;
   background: var(--playhead);
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
-.timeline-hint {
-  margin: 8px 0 0;
-  font-size: 0.75rem;
-  color: var(--text-muted);
+.timeline-ruler {
+  position: relative;
+  height: 22px;
+  margin-top: 8px;
+  color: var(--timeline-ruler);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ruler-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 </style>

@@ -46,20 +46,21 @@ export default defineNuxtConfig({
     },
     vuetifyOptions: {
       theme: {
-        defaultTheme: 'light',
+        defaultTheme: 'dark',
         themes: {
-          light: {
-            dark: false,
-            colors: {
-              background: '#f5f5f5',
-              surface: '#ffffff',
-            },
-          },
           dark: {
             dark: true,
             colors: {
-              background: '#0e0e0e',
-              surface: '#1e1e1e',
+              background: '#0B0E1A',
+              surface: '#16192B',
+              primary: '#2563EB',
+              secondary: '#EC4899',
+              error: '#F43F5E',
+              info: '#3B82F6',
+              success: '#22C55E',
+              warning: '#F59E0B',
+              'on-background': '#F4F6FB',
+              'on-surface': '#F4F6FB',
             },
           },
         },
@@ -69,16 +70,19 @@ export default defineNuxtConfig({
 
   app: {
     head: {
+      htmlAttrs: {
+        lang: 'pt-BR',
+        'data-theme': 'dark',
+      },
       title: 'Video Cortes',
       meta: [
         { name: 'description', content: 'Download local de vídeos do YouTube, X, TikTok, Instagram e Angel' },
-      ],
-      script: [
-        {
-          src: '/theme-init.js',
-          tagPosition: 'head',
-          tagPriority: 'critical',
-        },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+        { name: 'theme-color', content: '#0B0E1A' },
+        { name: 'color-scheme', content: 'dark' },
+        { name: 'mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
       ],
     },
   },

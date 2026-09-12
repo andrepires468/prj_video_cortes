@@ -64,3 +64,6 @@ yarn-error.log*
 
 # Cursor / local tooling
 .cursor/
+
+# Mockups visuais de referência
+layout/

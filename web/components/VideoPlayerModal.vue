@@ -70,8 +70,8 @@ function onVolumeChange(event: Event) {
 </script>
 
 <template>
-  <v-dialog v-model="open" max-width="920">
-    <v-card class="player-card">
+  <v-dialog v-model="open" max-width="920" scrim="black">
+    <v-card class="player-card surface-card">
       <v-card-title class="player-title">
         <span class="player-name" :title="title">{{ title }}</span>
         <v-btn icon variant="text" aria-label="Fechar" @click="close">
@@ -85,6 +85,7 @@ function onVolumeChange(event: Event) {
         :src="src"
         controls
         autoplay
+        playsinline
         @volumechange="onVolumeChange"
       />
     </v-card>
@@ -92,10 +93,6 @@ function onVolumeChange(event: Event) {
 </template>
 
 <style scoped>
-.player-card {
-  background: var(--bg-card);
-}
-
 .player-title {
   display: flex;
   align-items: center;
@@ -114,7 +111,7 @@ function onVolumeChange(event: Event) {
 .player-video {
   display: block;
   width: 100%;
-  max-height: 70vh;
+  max-height: min(70vh, 720px);
   background: var(--bg-video);
 }
 </style>

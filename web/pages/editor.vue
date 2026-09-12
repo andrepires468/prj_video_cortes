@@ -47,6 +47,7 @@ const MAX_MARKERS = 2
 const SPEED_MIN = 0.25
 const SPEED_MAX = 2
 const SPEED_STEP = 0.1
+const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const speed = ref(1)
 const speedText = ref('1.0')
 
@@ -367,282 +368,302 @@ function editOriginal() {
 </script>
 
 <template>
-  <div class="editor-page">
-    <v-container fluid class="editor-container">
-      <div class="editor-toolbar">
-        <v-btn variant="text" prepend-icon="mdi-arrow-left" @click="goHome">
-          Voltar
-        </v-btn>
-        <div class="editor-title">
-          <h1>Editor de cortes</h1>
-          <p v-if="filename" class="filename" :title="filename">{{ filename }}</p>
-          <p v-if="editingCut" class="filename filename-cut" :title="cutFilename">
-            Editando corte: {{ cutFilename }}
-          </p>
-        </div>
-        <v-spacer />
-        <v-btn
-          color="primary"
-          prepend-icon="mdi-content-save"
-          :loading="exporting"
-          :disabled="!canSave"
-          @click="exportCuts"
-        >
-          Salvar trecho
+  <div class="page-shell editor-page">
+    <div class="editor-toolbar">
+      <v-btn
+        class="ghost-btn"
+        variant="outlined"
+        rounded="lg"
+        prepend-icon="mdi-arrow-left"
+        @click="goHome"
+      >
+        Voltar
+      </v-btn>
+      <div class="editor-title">
+        <h1>Editor de cortes</h1>
+        <p v-if="filename" class="filename" :title="filename">{{ filename }}</p>
+        <p v-if="editingCut" class="filename filename-cut" :title="cutFilename">
+          Editando corte: {{ cutFilename }}
+        </p>
+      </div>
+      <v-btn
+        class="save-btn"
+        color="secondary"
+        rounded="lg"
+        prepend-icon="mdi-content-save"
+        :loading="exporting"
+        :disabled="!canSave"
+        @click="exportCuts"
+      >
+        Salvar trecho
+      </v-btn>
+    </div>
+
+    <v-alert
+      v-if="errorMsg"
+      type="error"
+      variant="tonal"
+      density="comfortable"
+      class="mb-3"
+      closable
+      @click:close="errorMsg = ''"
+    >
+      {{ errorMsg }}
+    </v-alert>
+
+    <v-alert
+      v-if="successMsg"
+      type="success"
+      variant="tonal"
+      density="comfortable"
+      class="mb-3"
+      closable
+      @click:close="successMsg = ''"
+    >
+      {{ successMsg }}
+      <div class="mt-2">
+        <NuxtLink to="/">Ver na lista de arquivos</NuxtLink>
+      </div>
+    </v-alert>
+
+    <v-alert
+      v-if="editingCut"
+      type="info"
+      variant="tonal"
+      density="comfortable"
+      class="mb-3"
+    >
+      Você está editando um corte. O novo arquivo entra na lista do vídeo original.
+      <div class="mt-2">
+        <v-btn size="small" variant="text" @click="editOriginal">
+          Voltar ao vídeo original
         </v-btn>
       </div>
+    </v-alert>
 
-      <v-alert
-        v-if="errorMsg"
-        type="error"
-        variant="tonal"
-        density="comfortable"
-        class="mb-3"
-        closable
-        @click:close="errorMsg = ''"
-      >
-        {{ errorMsg }}
-      </v-alert>
+    <v-progress-linear
+      v-if="exporting"
+      class="mb-3"
+      :model-value="exportJob?.progress || 0"
+      color="secondary"
+      height="6"
+      rounded
+    />
 
-      <v-alert
-        v-if="successMsg"
-        type="success"
-        variant="tonal"
-        density="comfortable"
-        class="mb-3"
-        closable
-        @click:close="successMsg = ''"
-      >
-        {{ successMsg }}
-        <div class="mt-2">
-          <NuxtLink to="/">Ver na lista de arquivos</NuxtLink>
+    <div v-if="loading" class="editor-loading">
+      <span class="app-spinner" role="status" aria-label="Carregando vídeo" />
+      <span>Carregando vídeo…</span>
+    </div>
+
+    <template v-else-if="filename && streamUrl">
+      <div class="preview-stage" @click="togglePlay">
+        <video
+          :key="streamUrl"
+          ref="videoRef"
+          class="preview-video"
+          :src="streamUrl"
+          preload="metadata"
+          playsinline
+          @loadedmetadata="onLoadedMetadata"
+          @timeupdate="onTimeUpdate"
+          @play="onPlay"
+          @pause="onPause"
+        />
+      </div>
+
+      <div class="editor-controls">
+      <div class="transport">
+        <div class="transport-left">
+          <v-btn icon variant="text" aria-label="Voltar 5 segundos" @click="skip(-5)">
+            <v-icon>mdi-skip-previous</v-icon>
+          </v-btn>
+          <v-btn
+            class="transport-play"
+            icon
+            color="primary"
+            size="large"
+            :aria-label="playing ? 'Pausar' : 'Play/pause'"
+            @click="togglePlay"
+          >
+            <v-icon>{{ playing ? 'mdi-pause' : 'mdi-play' }}</v-icon>
+          </v-btn>
+          <v-btn icon variant="text" aria-label="Avançar 5 segundos" @click="skip(5)">
+            <v-icon>mdi-skip-next</v-icon>
+          </v-btn>
+
+          <span class="timecode">
+            {{ formatClock(currentTime) }}
+            <span class="timecode-sep">/</span>
+            {{ formatClock(duration) }}
+          </span>
+
+          <div class="volume-control">
+            <v-btn icon variant="text" size="small" :aria-label="muted ? 'Ativar som' : 'Silenciar'" @click="toggleMute">
+              <v-icon>{{ volumeIcon }}</v-icon>
+            </v-btn>
+            <v-slider
+              class="volume-slider"
+              :model-value="muted ? 0 : volume"
+              :min="0"
+              :max="1"
+              :step="0.01"
+              hide-details
+              density="compact"
+              color="primary"
+              thumb-size="14"
+              track-size="3"
+              @update:model-value="onVolumeInput"
+            />
+          </div>
+
+          <v-menu location="bottom">
+            <template #activator="{ props: menuProps }">
+              <button
+                v-bind="menuProps"
+                type="button"
+                class="speed-chip"
+                :disabled="exporting"
+              >
+                Velocidade: {{ formatSpeed(speed) }}x
+                <v-icon size="16">mdi-chevron-down</v-icon>
+              </button>
+            </template>
+            <div class="speed-menu">
+              <button
+                v-for="preset in SPEED_PRESETS"
+                :key="preset"
+                type="button"
+                class="speed-option"
+                :class="{ active: speed === preset }"
+                @click="commitSpeed(preset)"
+              >
+                {{ formatSpeed(preset) }}x
+              </button>
+              <label class="speed-custom">
+                Custom
+                <input
+                  class="speed-input"
+                  type="number"
+                  min="0.25"
+                  max="2"
+                  step="0.01"
+                  :disabled="exporting"
+                  v-model="speedText"
+                  aria-label="Velocidade do corte"
+                  @change="onSpeedTyped"
+                  @blur="onSpeedTyped"
+                  @keydown.up.prevent="nudgeSpeed(SPEED_STEP)"
+                  @keydown.down.prevent="nudgeSpeed(-SPEED_STEP)"
+                >
+              </label>
+            </div>
+          </v-menu>
         </div>
-      </v-alert>
 
-      <v-alert
-        v-if="editingCut"
-        type="info"
-        variant="tonal"
-        density="comfortable"
-        class="mb-3"
-      >
-        Você está editando um corte. O novo arquivo entra na lista do vídeo original.
-        <div class="mt-2">
-          <v-btn size="small" variant="text" @click="editOriginal">
-            Voltar ao vídeo original
+        <div class="transport-right">
+          <v-btn
+            class="cut-btn"
+            variant="outlined"
+            color="secondary"
+            rounded="lg"
+            prepend-icon="mdi-scissors-cutting"
+            :disabled="markers.length >= MAX_MARKERS"
+            @click="addMarkerAtPlayhead"
+          >
+            Linha de corte ({{ markers.length }}/{{ MAX_MARKERS }})
+          </v-btn>
+          <v-btn
+            class="ghost-btn"
+            variant="outlined"
+            rounded="lg"
+            :disabled="selectedMarkerIndex === null"
+            prepend-icon="mdi-delete"
+            @click="removeSelectedMarker"
+          >
+            Remover
           </v-btn>
         </div>
-      </v-alert>
 
-      <v-progress-linear
-        v-if="exporting"
-        class="mb-3"
-        :model-value="exportJob?.progress || 0"
-        color="primary"
-        height="6"
-        rounded
-      />
-
-      <div v-if="loading" class="editor-loading">
-        <v-progress-circular indeterminate color="primary" />
-        <span>Carregando vídeo…</span>
+        <button
+          type="button"
+          class="clear-link"
+          :disabled="markers.length === 0"
+          @click="clearMarkers"
+        >
+          Limpar
+        </button>
+      </div>
       </div>
 
-      <template v-else-if="filename && streamUrl">
-        <v-card class="preview-card" variant="flat">
-          <div class="preview-stage">
-            <video
-              :key="streamUrl"
-              ref="videoRef"
-              class="preview-video"
-              :src="streamUrl"
-              preload="metadata"
-              @loadedmetadata="onLoadedMetadata"
-              @timeupdate="onTimeUpdate"
-              @play="onPlay"
-              @pause="onPause"
-              @click="togglePlay"
-            />
-          </div>
-
-          <div class="transport">
-            <v-btn icon variant="text" @click="skip(-5)">
-              <v-icon>mdi-rewind-5</v-icon>
-            </v-btn>
-            <v-btn icon variant="tonal" color="primary" size="large" @click="togglePlay">
-              <v-icon>{{ playing ? 'mdi-pause' : 'mdi-play' }}</v-icon>
-            </v-btn>
-            <v-btn icon variant="text" @click="skip(5)">
-              <v-icon>mdi-fast-forward-5</v-icon>
-            </v-btn>
-
-            <span class="timecode">
-              {{ formatClock(currentTime) }}
-              <span class="timecode-sep">/</span>
-              {{ formatClock(duration) }}
-            </span>
-
-            <div class="volume-control">
-              <v-btn icon variant="text" size="small" @click="toggleMute">
-                <v-icon>{{ volumeIcon }}</v-icon>
-              </v-btn>
-              <v-slider
-                class="volume-slider"
-                :model-value="muted ? 0 : volume"
-                :min="0"
-                :max="1"
-                :step="0.01"
-                hide-details
-                density="compact"
-                color="primary"
-                thumb-size="14"
-                track-size="3"
-                @update:model-value="onVolumeInput"
-              />
-            </div>
-
-            <div class="speed-control">
-              <span class="speed-label">Velocidade</span>
-              <v-btn
-                icon
-                variant="text"
-                size="x-small"
-                :disabled="speed <= SPEED_MIN || exporting"
-                aria-label="Diminuir velocidade"
-                @click="nudgeSpeed(-SPEED_STEP)"
-              >
-                <v-icon>mdi-chevron-down</v-icon>
-              </v-btn>
-              <input
-                class="speed-input"
-                type="number"
-                min="0.25"
-                max="2"
-                step="0.01"
-                :disabled="exporting"
-                v-model="speedText"
-                aria-label="Velocidade do corte"
-                @change="onSpeedTyped"
-                @blur="onSpeedTyped"
-                @keydown.up.prevent="nudgeSpeed(SPEED_STEP)"
-                @keydown.down.prevent="nudgeSpeed(-SPEED_STEP)"
-              >
-              <v-btn
-                icon
-                variant="text"
-                size="x-small"
-                :disabled="speed >= SPEED_MAX || exporting"
-                aria-label="Aumentar velocidade"
-                @click="nudgeSpeed(SPEED_STEP)"
-              >
-                <v-icon>mdi-chevron-up</v-icon>
-              </v-btn>
-              <span class="speed-unit">x</span>
-            </div>
-
-            <v-spacer />
-
-            <v-btn
-              variant="tonal"
-              color="error"
-              prepend-icon="mdi-scissors-cutting"
-              :disabled="markers.length >= MAX_MARKERS"
-              @click="addMarkerAtPlayhead"
-            >
-              Linha de corte ({{ markers.length }}/{{ MAX_MARKERS }})
-            </v-btn>
-            <v-btn
-              variant="text"
-              :disabled="selectedMarkerIndex === null"
-              prepend-icon="mdi-delete"
-              @click="removeSelectedMarker"
-            >
-              Remover
-            </v-btn>
-            <v-btn
-              variant="text"
-              :disabled="markers.length === 0"
-              @click="clearMarkers"
-            >
-              Limpar
-            </v-btn>
-          </div>
-        </v-card>
-
-        <v-card class="timeline-card" variant="outlined">
-          <v-card-title class="timeline-card-title">
-            Linha de edição
-            <span class="marker-count">
-              <template v-if="selectionRange">
-                Trecho:
-                {{ formatClock(selectionRange.start) }}
-                →
-                {{ formatClock(selectionRange.end) }}
-                <template v-if="outputDuration != null && speed !== 1">
-                  · saída {{ formatClock(outputDuration) }} a {{ formatSpeed(speed) }}x
-                </template>
+      <section class="timeline-card surface-card">
+        <div class="timeline-card-title">
+          <h2>Linha de edição</h2>
+          <span class="marker-count">
+            <template v-if="selectionRange">
+              Trecho:
+              {{ formatClock(selectionRange.start) }}
+              →
+              {{ formatClock(selectionRange.end) }}
+              <template v-if="outputDuration != null && speed !== 1">
+                · saída {{ formatClock(outputDuration) }} a {{ formatSpeed(speed) }}x
               </template>
-              <template v-else-if="markers.length === 1">
-                1/{{ MAX_MARKERS }} linhas · adicione a segunda ou remova para salvar o vídeo inteiro
+            </template>
+            <template v-else-if="markers.length === 1">
+              1/{{ MAX_MARKERS }} linhas · adicione a segunda ou remova para salvar o vídeo inteiro
+            </template>
+            <template v-else>
+              Vídeo inteiro
+              <template v-if="outputDuration != null && speed !== 1">
+                · saída {{ formatClock(outputDuration) }} a {{ formatSpeed(speed) }}x
               </template>
-              <template v-else>
-                Vídeo inteiro
-                <template v-if="outputDuration != null && speed !== 1">
-                  · saída {{ formatClock(outputDuration) }} a {{ formatSpeed(speed) }}x
-                </template>
-              </template>
-            </span>
-          </v-card-title>
-          <v-card-text>
-            <EditorVideoTimeline
-              :duration="duration"
-              :current-time="currentTime"
-              :markers="markers"
-              :selected-marker-index="selectedMarkerIndex"
-              :max-markers="MAX_MARKERS"
-              @seek="seekTo"
-              @select-marker="selectMarker"
-              @add-marker="addMarkerAt"
-            />
-          </v-card-text>
-        </v-card>
-      </template>
+            </template>
+          </span>
+        </div>
+        <EditorVideoTimeline
+          :duration="duration"
+          :current-time="currentTime"
+          :markers="markers"
+          :selected-marker-index="selectedMarkerIndex"
+          :max-markers="MAX_MARKERS"
+          @seek="seekTo"
+          @select-marker="selectMarker"
+          @add-marker="addMarkerAt"
+        />
+      </section>
 
-      <EditorCutList
-        v-if="filename"
-        ref="cutListRef"
-        :filename="filename"
-        :active-cut="cutFilename"
-        @play="pauseMainVideo"
-      />
-    </v-container>
+      <p class="timeline-hint">
+        Espaço: play/pause · Setas ← → : −5s / +5s · Sem linhas: salva o vídeo inteiro, só mudar a velocidade. Duas linhas: salva o trecho aqui, uma linha não permite salvar.
+      </p>
+    </template>
+
+    <EditorCutList
+      v-if="filename"
+      ref="cutListRef"
+      :filename="filename"
+      :active-cut="cutFilename"
+      @play="pauseMainVideo"
+    />
   </div>
 </template>
 
 <style scoped>
-.editor-page {
-  min-height: 100%;
-  background: var(--bg-page);
-}
-
-.editor-container {
-  max-width: 1200px;
-  padding-top: 16px;
-  padding-bottom: 32px;
-}
-
 .editor-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.editor-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .editor-title h1 {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 500;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
 }
 
@@ -650,7 +671,6 @@ function editOriginal() {
   margin: 2px 0 0;
   font-size: 0.8rem;
   color: var(--text-muted);
-  max-width: 420px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -660,43 +680,81 @@ function editOriginal() {
   color: var(--text-primary);
 }
 
-.preview-card {
-  background: var(--bg-preview);
-  color: #fff;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 16px;
+.save-btn {
+  min-height: 40px !important;
+  padding-inline: 18px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  flex-shrink: 0;
 }
 
 .preview-stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
   background: var(--bg-video);
-  min-height: 320px;
-  max-height: 52vh;
+  min-height: 220px;
+  max-height: min(58vh, 640px);
 }
 
 .preview-video {
   display: block;
   width: 100%;
-  max-height: 52vh;
+  max-height: min(58vh, 640px);
   height: auto;
   cursor: pointer;
   background: var(--bg-video);
 }
 
+.editor-controls {
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
+
 .transport {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "left right"
+    "clear right";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+}
+
+.transport-left {
+  grid-area: left;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: 6px;
   flex-wrap: wrap;
-  background: var(--bg-transport);
+  min-width: 0;
+}
+
+.transport-right {
+  grid-area: right;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-self: start;
+}
+
+.clear-link {
+  grid-area: clear;
+}
+
+.transport-play {
+  background: var(--accent-blue) !important;
+  color: #fff !important;
 }
 
 .timecode {
-  margin-left: 8px;
+  margin-left: 6px;
   font-variant-numeric: tabular-nums;
   font-size: 0.95rem;
   color: var(--text-on-preview);
@@ -711,9 +769,9 @@ function editOriginal() {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 140px;
+  min-width: 120px;
   max-width: 180px;
-  margin-left: 8px;
+  width: 160px;
 }
 
 .volume-slider {
@@ -721,34 +779,69 @@ function editOriginal() {
   margin-inline: 0;
 }
 
-.speed-control {
-  display: flex;
+.speed-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  margin-left: 8px;
-  padding: 2px 6px 2px 10px;
-  border: 1px solid var(--border-speed);
-  border-radius: 6px;
-  background: var(--bg-speed);
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 
-.speed-label {
-  font-size: 0.75rem;
-  color: var(--text-speed);
-  margin-right: 4px;
-  white-space: nowrap;
+.speed-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.speed-menu {
+  min-width: 140px;
+  padding: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.speed-option,
+.speed-custom {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.speed-option.active,
+.speed-option:hover {
+  background: var(--bg-elevated);
+}
+
+.speed-custom {
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: default;
 }
 
 .speed-input {
-  width: 3.4rem;
-  height: 28px;
+  width: 4rem;
+  height: 32px;
   border: 1px solid var(--border-speed-input);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--bg-speed-input);
   color: #fff;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  font-size: 0.9rem;
 }
 
 .speed-input:focus {
@@ -767,14 +860,38 @@ function editOriginal() {
   -moz-appearance: textfield;
 }
 
-.speed-unit {
+.cut-btn {
+  min-height: 40px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  font-weight: 700 !important;
+}
+
+.clear-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--accent-pink);
   font-size: 0.8rem;
-  color: var(--text-speed);
-  margin-left: 2px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.clear-link:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .timeline-card {
-  background: var(--bg-card);
+  display: block;
+  padding: 16px 18px 12px;
+  margin-top: 8px;
 }
 
 .timeline-card-title {
@@ -782,12 +899,25 @@ function editOriginal() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.timeline-card-title h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .marker-count {
   font-size: 0.85rem;
   font-weight: 400;
+  color: #60a5fa;
+}
+
+.timeline-hint {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 0.78rem;
   color: var(--text-muted);
 }
 
@@ -806,5 +936,48 @@ function editOriginal() {
 
 .mt-2 {
   margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .editor-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .save-btn {
+    width: 100%;
+  }
+}
+
+  @media (max-width: 720px) {
+  .transport {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "left"
+      "right"
+      "clear";
+  }
+
+  .transport-left,
+  .transport-right {
+    width: 100%;
+  }
+
+  .transport-right .v-btn {
+    flex: 1;
+  }
+
+  .volume-control {
+    width: 100%;
+    max-width: none;
+  }
+
+  .timeline-card-title {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .timeline-hint {
+    text-align: left;
+  }
 }
 </style>

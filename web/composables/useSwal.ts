@@ -3,11 +3,8 @@ export function useSwal() {
   return $swal
 }
 
-export function swalTheme(): 'dark' | 'light' {
-  if (import.meta.client && document.documentElement.getAttribute('data-theme') === 'dark') {
-    return 'dark'
-  }
-  return 'light'
+export function swalTheme(): 'dark' {
+  return 'dark'
 }
 
 function escapeHtml(value: string): string {

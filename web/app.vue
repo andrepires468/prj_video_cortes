@@ -1,42 +1,52 @@
 <script setup lang="ts">
-const { isDark, toggle } = useColorMode()
+const route = useRoute()
+const { listFiles } = useDownloads()
+const { downloadCount, setDownloadCount } = useLibraryStats()
+
+async function refreshCount() {
+  try {
+    const files = await listFiles()
+    setDownloadCount(files.length)
+  } catch {
+    /* lista ainda pode estar vazia / API offline */
+  }
+}
+
+onMounted(() => {
+  refreshCount()
+})
+
+watch(() => route.path, () => {
+  if (route.path === '/') refreshCount()
+})
 </script>
 
 <template>
-  <v-app>
-    <v-app-bar color="primary" density="comfortable" flat>
-      <v-app-bar-title>
-        <NuxtLink to="/" class="brand-link">Video Cortes</NuxtLink>
-      </v-app-bar-title>
-      <template #append>
-        <v-btn variant="text" to="/">Downloads</v-btn>
-        <ClientOnly>
+  <v-app class="app-root" theme="dark">
+    <header class="app-header">
+      <div class="app-header__inner">
+        <NuxtLink to="/" class="brand" aria-label="Video Cortes — início">
+          <span class="brand-mark" aria-hidden="true">
+            <v-icon size="22">mdi-play</v-icon>
+          </span>
+          <span class="brand-name">Video Cortes</span>
+        </NuxtLink>
+        <div class="app-header__actions">
           <v-btn
-            icon
-            variant="text"
-            :aria-label="isDark ? 'Ativar modo claro' : 'Ativar modo escuro'"
-            :title="isDark ? 'Modo claro' : 'Modo escuro'"
-            @click="toggle"
+            class="downloads-btn"
+            variant="outlined"
+            rounded="xl"
+            to="/"
           >
-            <v-icon>{{ isDark ? 'mdi-white-balance-sunny' : 'mdi-weather-night' }}</v-icon>
+            <v-icon size="18">mdi-download</v-icon>
+            <span class="downloads-label">Downloads</span>
+            <span class="count-badge">{{ downloadCount }}</span>
           </v-btn>
-          <template #fallback>
-            <v-btn icon variant="text" aria-label="Tema" disabled>
-              <v-icon>mdi-theme-light-dark</v-icon>
-            </v-btn>
-          </template>
-        </ClientOnly>
-      </template>
-    </v-app-bar>
-    <v-main>
+        </div>
+      </div>
+    </header>
+    <v-main class="app-main">
       <NuxtPage />
     </v-main>
   </v-app>
 </template>
-
-<style>
-.brand-link {
-  color: inherit;
-  text-decoration: none;
-}
-</style>
