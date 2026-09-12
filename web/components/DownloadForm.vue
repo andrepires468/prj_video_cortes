@@ -17,6 +17,7 @@ const platforms = [
   { name: 'X (Twitter)', icon: 'mdi-twitter' },
   { name: 'TikTok', icon: 'mdi-music-note' },
   { name: 'Instagram', icon: 'mdi-instagram' },
+  { name: 'Angel', icon: 'mdi-movie-open' },
 ]
 
 async function onSubmit() {
@@ -24,7 +25,7 @@ async function onSubmit() {
   job.value = null
   const trimmed = url.value.trim()
   if (!trimmed) {
-    errorMsg.value = 'Informe a URL do vídeo (YouTube, X, TikTok ou Instagram).'
+    errorMsg.value = 'Informe a URL do vídeo (YouTube, X, TikTok, Instagram ou Angel).'
     return
   }
 
@@ -57,7 +58,7 @@ async function onSubmit() {
       <v-text-field
         v-model="url"
         label="URL do vídeo"
-        placeholder="YouTube, X, TikTok ou Instagram"
+        placeholder="YouTube, X, TikTok, Instagram ou Angel"
         variant="outlined"
         density="comfortable"
         hide-details="auto"

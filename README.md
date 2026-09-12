@@ -1,6 +1,6 @@
 # Video Cortes
 
-App local para download de vídeos do YouTube, X (Twitter), TikTok e Instagram e cortes básicos, com API em FastAPI + yt-dlp/FFmpeg e frontend Nuxt 3 + Vuetify.
+App local para download de vídeos do YouTube, X (Twitter), TikTok, Instagram e Angel e cortes básicos, com API em FastAPI + yt-dlp/FFmpeg e frontend Nuxt 3 + Vuetify.
 
 ## Pré-requisitos
 
@@ -36,7 +36,7 @@ Cortes gerados usam o padrão `{nome}_corte_01.mp4`, `_02`, etc.
 
 ### Download
 
-1. Cole a URL de um vídeo do YouTube, X (`x.com` / `twitter.com`), TikTok ou Instagram (Reel/post)
+1. Cole a URL de um vídeo do YouTube, X (`x.com` / `twitter.com`), TikTok, Instagram (Reel/post) ou Angel (`angel.com`)
 2. Clique em **Baixar** — a origem é detectada automaticamente
 3. Acompanhe o progresso e veja o arquivo na lista
 

@@ -13,7 +13,7 @@ class JobStatus(str, Enum):
 
 
 class DownloadRequest(BaseModel):
-    url: str = Field(..., min_length=8, description="URL do vídeo (YouTube, X, TikTok ou Instagram)")
+    url: str = Field(..., min_length=8, description="URL do vídeo (YouTube, X, TikTok, Instagram ou Angel)")
 
 
 class JobCreated(BaseModel):

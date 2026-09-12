@@ -71,7 +71,7 @@ export default defineNuxtConfig({
     head: {
       title: 'Video Cortes',
       meta: [
-        { name: 'description', content: 'Download local de vídeos do YouTube, X, TikTok e Instagram' },
+        { name: 'description', content: 'Download local de vídeos do YouTube, X, TikTok, Instagram e Angel' },
       ],
       script: [
         {
