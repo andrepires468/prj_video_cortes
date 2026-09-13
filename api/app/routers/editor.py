@@ -1,18 +1,37 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.db import SessionLocal
+from app.models.orm import Usuario
 from app.models.schemas import CutJobInfo, CutRequest, FileListResponse, JobCreated, JobStatus
-from app.services import cutter
-from app.services.storage import list_cortes, resolve_download_file
+from app.services import cutter, library
+from app.services.auth import get_current_user
+from app.services.storage import resolve_download_file
 
-router = APIRouter(prefix="/api/editor", tags=["editor"])
+router = APIRouter(prefix="/api/editor", tags=["editor"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/cortes", response_model=FileListResponse)
-def list_video_cortes(filename: str = Query(..., min_length=1)) -> FileListResponse:
-    resolve_download_file(filename)
-    return FileListResponse(files=list_cortes(filename))
+def list_video_cortes(
+    filename: str = Query(..., min_length=1),
+    usuario: Usuario = Depends(get_current_user),
+) -> FileListResponse:
+    db = SessionLocal()
+    try:
+        in_db = library.get_download_by_filename(db, filename, usuario.id)
+        on_disk = False
+        if library.allow_disk_fallback(usuario.id):
+            try:
+                resolve_download_file(filename)
+                on_disk = True
+            except HTTPException:
+                on_disk = False
+        if not in_db and not on_disk:
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+        return FileListResponse(files=library.list_library_cortes(db, filename, usuario.id))
+    finally:
+        db.close()
 
 
 @router.post("/cuts", response_model=JobCreated)

@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+from datetime import timedelta
+from functools import lru_cache
+from pathlib import Path
+
+from minio import Minio
+from minio.error import S3Error
+
+from app.config import settings
+
+_CONTENT_TYPES = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".m4v": "video/x-m4v",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
+
+def _endpoint() -> str:
+    value = (settings.minio_endpoint or "").strip()
+    value = value.replace("https://", "").replace("http://", "")
+    return value.rstrip("/")
+
+
+@lru_cache(maxsize=1)
+def get_client() -> Minio:
+    return Minio(
+        _endpoint(),
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_use_ssl,
+        region=settings.minio_region or None,
+    )
+
+
+def content_type_for(filename: str) -> str:
+    return _CONTENT_TYPES.get(Path(filename).suffix.lower(), "application/octet-stream")
+
+
+def download_object_key(usuario_id: str, download_id: str, filename: str) -> str:
+    return f"downloads/{usuario_id}/{download_id}/{filename}"
+
+
+def download_thumb_key(usuario_id: str, download_id: str, stem: str) -> str:
+    return f"downloads/{usuario_id}/{download_id}/{stem}.jpg"
+
+
+def corte_object_key(usuario_id: str, download_id: str, corte_id: str, filename: str) -> str:
+    return f"cortes/{usuario_id}/{download_id}/{corte_id}/{filename}"
+
+
+def corte_thumb_key(usuario_id: str, download_id: str, corte_id: str, stem: str) -> str:
+    return f"cortes/{usuario_id}/{download_id}/{corte_id}/{stem}.jpg"
+
+
+def put_file(key: str, path: Path, content_type: str | None = None) -> str:
+    client = get_client()
+    client.fput_object(
+        settings.minio_bucket,
+        key,
+        str(path),
+        content_type=content_type or content_type_for(path.name),
+    )
+    return key
+
+
+def object_exists(key: str) -> bool:
+    if not key:
+        return False
+    try:
+        get_client().stat_object(settings.minio_bucket, key)
+        return True
+    except S3Error:
+        return False
+
+
+def stat_object(key: str):
+    return get_client().stat_object(settings.minio_bucket, key)
+
+
+def get_object(key: str, offset: int = 0, length: int | None = None):
+    kwargs: dict = {}
+    if offset:
+        kwargs["offset"] = offset
+    if length is not None:
+        kwargs["length"] = length
+    return get_client().get_object(settings.minio_bucket, key, **kwargs)
+
+
+def remove_object(key: str | None) -> None:
+    if not key:
+        return
+    try:
+        get_client().remove_object(settings.minio_bucket, key)
+    except S3Error:
+        return
+
+
+def presigned_get(key: str, expires_seconds: int = 3600) -> str:
+    return get_client().presigned_get_object(
+        settings.minio_bucket,
+        key,
+        expires=timedelta(seconds=expires_seconds),
+    )

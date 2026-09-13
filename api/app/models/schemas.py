@@ -51,6 +51,7 @@ class DeleteMediaResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+    database: str = "ok"
 
 
 class MediaInfo(BaseModel):
@@ -87,3 +88,20 @@ class CutJobInfo(BaseModel):
     error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    senha: str = Field(..., min_length=1, max_length=128)
+
+
+class UsuarioPublic(BaseModel):
+    id: str
+    email: str
+    nome: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    usuario: UsuarioPublic

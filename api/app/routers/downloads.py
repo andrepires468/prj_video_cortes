@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import threading
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.db import SessionLocal
+from app.models.orm import Usuario
 from app.models.schemas import (
     DownloadRequest,
     FileListResponse,
@@ -11,10 +13,10 @@ from app.models.schemas import (
     JobInfo,
     JobStatus,
 )
-from app.services import downloader
-from app.services.storage import list_files
+from app.services import downloader, library
+from app.services.auth import get_current_user
 
-router = APIRouter(prefix="/api/downloads", tags=["downloads"])
+router = APIRouter(prefix="/api/downloads", tags=["downloads"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("", response_model=JobCreated)
@@ -43,5 +45,9 @@ def job_status(job_id: str) -> JobInfo:
 
 
 @router.get("/files", response_model=FileListResponse)
-def files() -> FileListResponse:
-    return FileListResponse(files=list_files())
+def files(usuario: Usuario = Depends(get_current_user)) -> FileListResponse:
+    db = SessionLocal()
+    try:
+        return FileListResponse(files=library.list_library_files(db, usuario.id))
+    finally:
+        db.close()

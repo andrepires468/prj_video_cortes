@@ -1,29 +1,18 @@
 <script setup lang="ts">
 const route = useRoute()
-const { listFiles } = useDownloads()
 const { downloadCount, setDownloadCount } = useLibraryStats()
+const { user, isLoggedIn, logout } = useAuth()
 
-async function refreshCount() {
-  try {
-    const files = await listFiles()
-    setDownloadCount(files.length)
-  } catch {
-    /* lista ainda pode estar vazia / API offline */
-  }
-}
+const isLogin = computed(() => route.path === '/login')
 
-onMounted(() => {
-  refreshCount()
-})
-
-watch(() => route.path, () => {
-  if (route.path === '/') refreshCount()
+watch(isLoggedIn, (ok) => {
+  if (!ok) setDownloadCount(0)
 })
 </script>
 
 <template>
   <v-app class="app-root" theme="dark">
-    <header class="app-header">
+    <header v-if="!isLogin" class="app-header">
       <div class="app-header__inner">
         <NuxtLink to="/" class="brand" aria-label="Video Cortes — início">
           <span class="brand-mark" aria-hidden="true">
@@ -42,10 +31,19 @@ watch(() => route.path, () => {
             <span class="downloads-label">Downloads</span>
             <span class="count-badge">{{ downloadCount }}</span>
           </v-btn>
+          <span v-if="user" class="header-user">{{ user.nome }}</span>
+          <v-btn
+            class="logout-btn"
+            variant="text"
+            rounded="xl"
+            @click="logout"
+          >
+            Sair
+          </v-btn>
         </div>
       </div>
     </header>
-    <v-main class="app-main">
+    <v-main class="app-main" :class="{ 'app-main--login': isLogin }">
       <NuxtPage />
     </v-main>
   </v-app>
