@@ -62,8 +62,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Cursor / local tooling
-.cursor/
+# Cursor: versiona regras; MCP com credenciais fica local
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+.cursor/mcp.json
+.cursor/mcp.js
+.cursor/mcps.js
 
 # Mockups visuais de referência
 layout/
