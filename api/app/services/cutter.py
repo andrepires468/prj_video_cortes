@@ -1,21 +1,20 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
+import tempfile
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.db import SessionLocal
+from app.models.orm import Corte, Download
 from app.models.schemas import CutJobInfo, CutSegment, JobStatus
+from app.services import library, s3
 from app.services.filenames import safe_video_stem
 from app.services.probe import probe_media
-from app.services.storage import (
-    corte_belongs_to,
-    ensure_cortes_dir,
-    resolve_download_file,
-    resolve_media_file,
-)
-from app.services.thumbnail import generate_thumbnail
+from app.services.thumbnail import generate_thumbnail_to
 
 _lock = threading.Lock()
 _jobs: dict[str, CutJobInfo] = {}
@@ -26,6 +25,10 @@ SPEED_MAX = 2.0
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _now_naive() -> datetime:
+    return _now().replace(tzinfo=None)
 
 
 def _update_job(job_id: str, **kwargs) -> None:
@@ -96,32 +99,63 @@ def _atempo_filter(speed: float) -> str:
     return ",".join(parts)
 
 
+def _source_from_library(
+    filename: str,
+    source_filename: str | None,
+    usuario_id: str,
+) -> tuple[Download, str, str, float, str | None]:
+    db = SessionLocal()
+    try:
+        download = library.get_download_by_filename(db, filename, usuario_id)
+        if not download or not download.storage_key or not download.filename:
+            raise ValueError("Arquivo não encontrado")
+        duration = float(download.duracao_seg or 0)
+        source_key = download.storage_key
+        source_name = download.filename
+        corte_origem_id = None
+        if source_filename:
+            origem = library.get_corte_by_filename(db, source_filename, usuario_id)
+            if (
+                not origem
+                or origem.download_id != download.id
+                or not origem.storage_key
+                or not origem.filename
+            ):
+                raise ValueError("O arquivo informado não é um corte deste vídeo.")
+            source_key = origem.storage_key
+            source_name = origem.filename
+            corte_origem_id = origem.id
+            cut_duration = float((origem.fim_seg or 0) - (origem.inicio_seg or 0))
+            if cut_duration > 0:
+                duration = cut_duration
+        return download, source_key, source_name, duration, corte_origem_id
+    finally:
+        db.close()
+
+
 def create_cut_job(
     filename: str,
     markers: list[float],
+    usuario_id: str,
     segments: list[CutSegment] | None = None,
     speed: float = 1.0,
     source_filename: str | None = None,
 ) -> CutJobInfo:
-    original = resolve_download_file(filename)
-    if source_filename:
-        if not corte_belongs_to(filename, source_filename):
-            raise ValueError("O arquivo informado não é um corte deste vídeo.")
-        path = resolve_media_file(source_filename, "cortes")
-    else:
-        path = original
-    info = probe_media(path)
-    if info.duration <= 0:
-        raise ValueError("Duração do vídeo inválida")
+    download, source_key, source_name, duration, corte_origem_id = _source_from_library(
+        filename, source_filename, usuario_id
+    )
 
     if segments:
+        max_end = duration if duration > 0 else max(s.end for s in segments)
         resolved = [
-            CutSegment(start=max(0.0, s.start), end=min(info.duration, s.end))
+            CutSegment(start=max(0.0, s.start), end=min(max_end, s.end) if max_end else s.end)
             for s in segments
             if s.end > s.start
         ]
     else:
-        resolved = markers_to_segments(markers, info.duration)
+        if duration <= 0:
+            raise ValueError("Duração do vídeo inválida")
+        resolved = markers_to_segments(markers, duration)
 
     if not resolved:
         raise ValueError("Nenhum segmento válido para exportar.")
@@ -142,7 +176,17 @@ def create_cut_job(
 
     thread = threading.Thread(
         target=_run_cuts,
-        args=(job_id, path, resolved, _clamp_speed(speed), filename),
+        args=(
+            job_id,
+            download.id,
+            usuario_id,
+            source_key,
+            source_name,
+            filename,
+            resolved,
+            _clamp_speed(speed),
+            corte_origem_id,
+        ),
         daemon=True,
     )
     thread.start()
@@ -153,42 +197,107 @@ def _safe_stem(name: str) -> str:
     return safe_video_stem(name)
 
 
+def _cut_out_name(download_id: str, stem: str, index: int) -> str:
+    db = SessionLocal()
+    try:
+        names = {
+            row[0]
+            for row in db.query(Corte.filename).filter(Corte.download_id == download_id)
+            if row[0]
+        }
+    finally:
+        db.close()
+    ext = ".mp4"
+    name = f"{stem}_corte_{index:02d}{ext}"
+    counter = 1
+    while name in names:
+        counter += 1
+        name = f"{stem}_corte_{index:02d}_{counter}{ext}"
+    return name[:255]
+
+
 def _run_cuts(
     job_id: str,
-    source: Path,
+    download_id: str,
+    usuario_id: str,
+    source_key: str,
+    source_name: str,
+    output_filename: str,
     segments: list[CutSegment],
-    speed: float = 1.0,
-    output_filename: str | None = None,
+    speed: float,
+    corte_origem_id: str | None,
 ) -> None:
     _update_job(job_id, status=JobStatus.running, message="Exportando cortes…", progress=0.0)
     outputs: list[str] = []
-    dest_dir = ensure_cortes_dir()
-    stem = _safe_stem(output_filename or source.name)
-    # Reencode sempre em MP4 (H.264/AAC) para corte preciso no frame
-    ext = ".mp4"
+    work = Path(tempfile.mkdtemp(prefix="vc-cut-"))
+    stem = _safe_stem(output_filename)
 
     try:
+        source = s3.get_file(source_key, work / source_name)
         total = len(segments)
         for index, segment in enumerate(segments, start=1):
-            out_name = f"{stem}_corte_{index:02d}{ext}"
-            out_path = dest_dir / out_name
-            # Evita sobrescrever: se existir, incrementa sufixo
-            counter = 1
-            while out_path.exists():
-                counter += 1
-                out_name = f"{stem}_corte_{index:02d}_{counter}{ext}"
-                out_path = dest_dir / out_name
+            out_name = _cut_out_name(download_id, stem, index)
+            out_path = work / out_name
+            corte_id = str(uuid.uuid4())
 
             _update_job(
                 job_id,
                 message=f"Exportando corte {index}/{total}…",
-                progress=round((index - 1) / total * 100, 1),
+                progress=round((index - 1) / total * 80, 1),
             )
             _ffmpeg_cut(source, out_path, segment.start, segment.end, speed)
+
+            thumb_path = None
             try:
-                generate_thumbnail(out_path)
+                thumb_path = generate_thumbnail_to(out_path, out_path.with_suffix(".jpg"))
             except Exception:  # noqa: BLE001 — corte ok mesmo se thumb falhar
                 pass
+
+            _update_job(job_id, message="Enviando ao storage…", progress=round((index - 0.2) / total * 100, 1))
+            storage_key = s3.corte_object_key(usuario_id, download_id, corte_id, out_name)
+            s3.put_file(storage_key, out_path)
+            thumb_key = None
+            if thumb_path is not None and thumb_path.is_file():
+                thumb_key = s3.corte_thumb_key(usuario_id, download_id, corte_id, Path(out_name).stem)
+                s3.put_file(thumb_key, thumb_path)
+
+            info = None
+            try:
+                info = probe_media(out_path)
+            except Exception:  # noqa: BLE001
+                info = None
+
+            now = _now_naive()
+            db = SessionLocal()
+            try:
+                row = Corte(
+                    id=corte_id,
+                    download_id=download_id,
+                    usuario_id=usuario_id,
+                    corte_origem_id=corte_origem_id,
+                    storage_key=storage_key,
+                    thumb_key=thumb_key,
+                    filename=out_name,
+                    inicio_seg=float(segment.start),
+                    fim_seg=float(segment.end),
+                    velocidade=speed,
+                    status=JobStatus.done,
+                    progress=100.0,
+                    mensagem="Corte concluído",
+                    tamanho_bytes=out_path.stat().st_size if out_path.is_file() else (info.size if info else None),
+                    criado_em=now,
+                    atualizado_em=now,
+                )
+                db.add(row)
+                db.commit()
+            except Exception:
+                db.rollback()
+                s3.remove_object(storage_key)
+                s3.remove_object(thumb_key)
+                raise
+            finally:
+                db.close()
+
             outputs.append(out_name)
 
         _update_job(
@@ -207,6 +316,8 @@ def _run_cuts(
             error=str(exc),
             outputs=outputs,
         )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 _ENCODE_ARGS = [
@@ -238,18 +349,11 @@ def _speed_filter_args(speed: float) -> list[str]:
 
 
 def _ffmpeg_cut(source: Path, dest: Path, start: float, end: float, speed: float = 1.0) -> None:
-    """
-    Corte com reencode (não usa -c copy).
-
-    A velocidade altera só o arquivo gerado em data/cortes; o original
-    em downloads permanece intacto.
-    """
+    """Corte com reencode (não usa -c copy). Velocidade altera só o arquivo gerado."""
     duration = max(0.05, end - start)
     speed = _clamp_speed(speed)
     speed_args = _speed_filter_args(speed)
 
-    # -ss/-t antes de -i: recorta a duração original no input; os filtros
-    # de velocidade mudam só a duração do arquivo de saída.
     cmd = [
         "ffmpeg",
         "-y",
@@ -270,7 +374,6 @@ def _ffmpeg_cut(source: Path, dest: Path, start: float, end: float, speed: float
     if result.returncode == 0:
         return
 
-    # Fallback: trim no filtro (preciso mesmo com velocidade != 1.0)
     v_filters = [f"trim=start={start:.3f}:duration={duration:.3f}", "setpts=PTS-STARTPTS"]
     a_filters = [f"atrim=start={start:.3f}:duration={duration:.3f}", "asetpts=PTS-STARTPTS"]
     if abs(speed - 1.0) >= 0.01:

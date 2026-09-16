@@ -19,6 +19,8 @@ export interface FileInfo {
   size: number
   mtime: string
   thumb?: string | null
+  play_url?: string | null
+  thumb_url?: string | null
 }
 
 export interface MediaInfo {

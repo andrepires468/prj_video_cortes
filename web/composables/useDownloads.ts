@@ -68,6 +68,22 @@ export function useDownloads() {
     return `${base}/media/thumb?${mediaQuery(filename, folder)}`
   }
 
+  async function getPlaybackUrl(
+    filename: string,
+    folder: MediaFolder = 'downloads',
+    download = false,
+  ): Promise<string> {
+    try {
+      const res = await $fetch<{ url: string }>(`${base}/media/playback`, {
+        query: { name: filename, folder, download: download ? '1' : '0' },
+      })
+      if (res?.url) return res.url
+    } catch {
+      /* cai no stream autenticado */
+    }
+    return mediaStreamUrl(filename, folder, download)
+  }
+
   async function getMediaInfo(
     filename: string,
     folder: MediaFolder = 'downloads',
@@ -141,6 +157,7 @@ export function useDownloads() {
     pollJob,
     mediaStreamUrl,
     mediaThumbUrl,
+    getPlaybackUrl,
     getMediaInfo,
     deleteMedia,
     startCuts,

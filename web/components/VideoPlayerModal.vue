@@ -14,6 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
+  error: []
 }>()
 
 const open = computed({
@@ -86,6 +87,8 @@ function onVolumeChange(event: Event) {
         controls
         autoplay
         playsinline
+        preload="auto"
+        @error="emit('error')"
         @volumechange="onVolumeChange"
       />
     </v-card>

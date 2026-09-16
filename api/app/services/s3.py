@@ -9,6 +9,8 @@ from minio.error import S3Error
 
 from app.config import settings
 
+_cors_ok = False
+
 _CONTENT_TYPES = {
     ".mp4": "video/mp4",
     ".webm": "video/webm",
@@ -71,6 +73,12 @@ def put_file(key: str, path: Path, content_type: str | None = None) -> str:
     return key
 
 
+def get_file(key: str, dest: Path) -> Path:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    get_client().fget_object(settings.minio_bucket, key, str(dest))
+    return dest
+
+
 def object_exists(key: str) -> bool:
     if not key:
         return False
@@ -103,9 +111,47 @@ def remove_object(key: str | None) -> None:
         return
 
 
-def presigned_get(key: str, expires_seconds: int = 3600) -> str:
+def presigned_get(
+    key: str,
+    expires_seconds: int | None = None,
+    filename: str | None = None,
+    download: bool = False,
+) -> str:
+    extra: dict[str, str] = {}
+    if filename:
+        extra["response-content-type"] = content_type_for(filename)
+        disposition = "attachment" if download else "inline"
+        extra["response-content-disposition"] = f'{disposition}; filename="{Path(filename).name}"'
     return get_client().presigned_get_object(
         settings.minio_bucket,
         key,
-        expires=timedelta(seconds=expires_seconds),
+        expires=timedelta(seconds=expires_seconds or settings.playback_url_expire_seconds),
+        response_headers=extra or None,
     )
+
+
+def playback_cors_ok() -> bool:
+    return _cors_ok
+
+
+def ensure_playback_cors() -> None:
+    """Lê o CORS do bucket. Não grava: o gateway EasyPanel não implementa PUT ?cors."""
+    global _cors_ok
+    _cors_ok = False
+    origins = [item.strip() for item in (settings.minio_cors_origins or "").split(",") if item.strip()]
+    if not origins:
+        return
+    try:
+        response = get_client()._execute(
+            "GET",
+            settings.minio_bucket,
+            query_params={"cors": ""},
+        )
+        body = (response.data or b"").decode("utf-8", errors="ignore")
+        response.close()
+        response.release_conn()
+    except S3Error:
+        return
+    except Exception:
+        return
+    _cors_ok = any(origin in body for origin in origins)

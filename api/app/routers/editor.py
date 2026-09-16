@@ -7,7 +7,6 @@ from app.models.orm import Usuario
 from app.models.schemas import CutJobInfo, CutRequest, FileListResponse, JobCreated, JobStatus
 from app.services import cutter, library
 from app.services.auth import get_current_user
-from app.services.storage import resolve_download_file
 
 router = APIRouter(prefix="/api/editor", tags=["editor"], dependencies=[Depends(get_current_user)])
 
@@ -20,14 +19,7 @@ def list_video_cortes(
     db = SessionLocal()
     try:
         in_db = library.get_download_by_filename(db, filename, usuario.id)
-        on_disk = False
-        if library.allow_disk_fallback(usuario.id):
-            try:
-                resolve_download_file(filename)
-                on_disk = True
-            except HTTPException:
-                on_disk = False
-        if not in_db and not on_disk:
+        if not in_db or not in_db.storage_key:
             raise HTTPException(status_code=404, detail="Arquivo não encontrado")
         return FileListResponse(files=library.list_library_cortes(db, filename, usuario.id))
     finally:
@@ -35,11 +27,15 @@ def list_video_cortes(
 
 
 @router.post("/cuts", response_model=JobCreated)
-def start_cuts(body: CutRequest) -> JobCreated:
+def start_cuts(
+    body: CutRequest,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobCreated:
     try:
         job = cutter.create_cut_job(
             filename=body.filename,
             markers=body.markers,
+            usuario_id=usuario.id,
             segments=body.segments,
             speed=body.speed,
             source_filename=body.source_filename,

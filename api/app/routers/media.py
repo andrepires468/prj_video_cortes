@@ -2,31 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from app.db import SessionLocal
 from app.models.orm import Usuario
-from app.models.schemas import DeleteMediaResponse, MediaInfo
+from app.config import settings
+from app.models.schemas import DeleteMediaResponse, MediaInfo, PlaybackUrlResponse
 from app.services import library, s3
 from app.services.auth import get_current_user
-from app.services.probe import probe_media
-from app.services.storage import is_image_file, is_video_file, resolve_media_file
-from app.services.thumbnail import generate_thumbnail, thumbnail_path_for
 
 router = APIRouter(prefix="/api/media", tags=["media"], dependencies=[Depends(get_current_user)])
 
 FolderKind = Literal["downloads", "cortes"]
-
-_MEDIA_TYPES = {
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".mkv": "video/x-matroska",
-    ".mov": "video/quicktime",
-    ".avi": "video/x-msvideo",
-    ".m4v": "video/x-m4v",
-}
 
 
 def _parse_range(header: str | None, size: int) -> tuple[int, int] | None:
@@ -85,6 +75,8 @@ def _stream_s3(key: str, filename: str, media_type: str, download: bool, request
     headers = {
         "Accept-Ranges": "bytes",
         "Content-Disposition": f'{disposition}; filename="{filename}"',
+        "Cache-Control": "private, no-store",
+        "X-Accel-Buffering": "no",
         **extra,
     }
     return StreamingResponse(chunks(), status_code=status, media_type=media_type, headers=headers)
@@ -96,26 +88,45 @@ def media_info(
     folder: FolderKind = Query("downloads"),
     usuario: Usuario = Depends(get_current_user),
 ) -> MediaInfo:
-    from_db = None
     db = SessionLocal()
     try:
         from_db = library.library_media_info(db, name, folder, usuario.id)
-        if from_db and from_db.duration > 0:
-            return from_db
+        storage_key, _ = library.storage_keys_for(db, name, folder, usuario.id)
     finally:
         db.close()
+    if not from_db or not storage_key:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    return from_db
+
+
+@router.get("/playback", response_model=PlaybackUrlResponse)
+def media_playback(
+    name: str = Query(..., min_length=1),
+    folder: FolderKind = Query("downloads"),
+    download: bool = Query(False),
+    usuario: Usuario = Depends(get_current_user),
+) -> PlaybackUrlResponse:
+    db = SessionLocal()
     try:
-        path = resolve_media_file(name, folder)
-    except HTTPException:
-        if from_db:
-            return from_db
-        raise
-    if not is_video_file(path):
-        raise HTTPException(status_code=400, detail="Arquivo não é um vídeo suportado")
+        storage_key, _ = library.storage_keys_for(db, name, folder, usuario.id)
+    finally:
+        db.close()
+    key = storage_key
+    if not key:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    if not s3.playback_cors_ok():
+        query = urlencode({"name": name, "folder": folder})
+        if download:
+            query += "&download=1"
+        return PlaybackUrlResponse(
+            url=f"/api/media/stream?{query}",
+            expires_in=settings.playback_url_expire_seconds,
+        )
     try:
-        return probe_media(path)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        url = s3.presigned_get(key, filename=Path(name).name, download=download)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao gerar URL de reprodução") from exc
+    return PlaybackUrlResponse(url=url, expires_in=settings.playback_url_expire_seconds)
 
 
 @router.get("/stream")
@@ -126,19 +137,6 @@ def media_stream(
     download: bool = Query(False),
     usuario: Usuario = Depends(get_current_user),
 ):
-    try:
-        path = resolve_media_file(name, folder)
-        if is_video_file(path) and library.allow_disk_fallback(usuario.id):
-            media_type = _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
-            return FileResponse(
-                path,
-                media_type=media_type,
-                filename=path.name,
-                content_disposition_type="attachment" if download else "inline",
-            )
-    except HTTPException:
-        pass
-
     db = SessionLocal()
     storage_key = None
     try:
@@ -163,32 +161,6 @@ def media_thumb(
     folder: FolderKind = Query("downloads"),
     usuario: Usuario = Depends(get_current_user),
 ):
-    try:
-        path = resolve_media_file(name, folder)
-        if is_image_file(path) and library.allow_disk_fallback(usuario.id):
-            return FileResponse(
-                path,
-                media_type="image/jpeg",
-                filename=path.name,
-                content_disposition_type="inline",
-            )
-        if is_video_file(path) and library.allow_disk_fallback(usuario.id):
-            thumb = thumbnail_path_for(path)
-            if not thumb.is_file():
-                try:
-                    thumb = generate_thumbnail(path)
-                except Exception:
-                    thumb = None
-            if thumb is not None and thumb.is_file():
-                return FileResponse(
-                    thumb,
-                    media_type="image/jpeg",
-                    filename=thumb.name,
-                    content_disposition_type="inline",
-                )
-    except HTTPException:
-        pass
-
     db = SessionLocal()
     thumb_key = None
     try:

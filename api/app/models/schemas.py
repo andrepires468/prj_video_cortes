@@ -38,6 +38,8 @@ class FileInfo(BaseModel):
     size: int
     mtime: datetime
     thumb: Optional[str] = None
+    play_url: Optional[str] = None
+    thumb_url: Optional[str] = None
 
 
 class FileListResponse(BaseModel):
@@ -62,6 +64,11 @@ class MediaInfo(BaseModel):
     size: int
 
 
+class PlaybackUrlResponse(BaseModel):
+    url: str
+    expires_in: int
+
+
 class CutSegment(BaseModel):
     start: float = Field(..., ge=0)
     end: float = Field(..., gt=0)
@@ -71,7 +78,7 @@ class CutRequest(BaseModel):
     filename: str = Field(..., min_length=1)
     source_filename: Optional[str] = Field(
         default=None,
-        description="Corte em data/cortes a usar como origem; o arquivo gerado continua ligado ao vídeo original",
+        description="Corte já existente a usar como origem; o arquivo gerado continua ligado ao vídeo original",
     )
     markers: list[float] = Field(default_factory=list)
     segments: list[CutSegment] | None = None

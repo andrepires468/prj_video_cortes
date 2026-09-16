@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_expire_days: int = 7
     auth_cookie_name: str = "vc_token"
+    minio_cors_origins: str = "http://localhost:3101,http://127.0.0.1:3101"
+    playback_url_expire_seconds: int = 7200
 
     @property
     def database_url(self) -> str:

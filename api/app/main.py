@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db import check_database
 from app.models.schemas import HealthResponse
 from app.routers import auth, downloads, editor, media
-from app.services.storage import ensure_cortes_dir, ensure_downloads_dir
+from app.services import s3
 
 app = FastAPI(title="Video Cortes API", version="0.1.0")
 
@@ -27,9 +27,11 @@ app.include_router(editor.router)
 
 @app.on_event("startup")
 def on_startup() -> None:
-    ensure_downloads_dir()
-    ensure_cortes_dir()
     check_database()
+    try:
+        s3.ensure_playback_cors()
+    except Exception:
+        pass
 
 
 @app.get("/api/health", response_model=HealthResponse)

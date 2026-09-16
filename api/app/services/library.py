@@ -6,18 +6,10 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, selectinload
 
-from app.config import settings
 from app.db import SessionLocal
 from app.models.orm import Corte, Download
 from app.models.schemas import FileInfo, JobStatus, MediaInfo
 from app.services import s3
-from app.services.storage import list_cortes as list_cortes_disk
-from app.services.storage import list_files as list_files_disk
-
-
-def allow_disk_fallback(usuario_id: str) -> bool:
-    default_id = (settings.default_usuario_id or "").strip()
-    return bool(default_id) and default_id == usuario_id
 
 
 def _mtime(value: datetime) -> datetime:
@@ -26,32 +18,55 @@ def _mtime(value: datetime) -> datetime:
     return value
 
 
-def _file_info(name: str | None, size: int | None, mtime: datetime, has_thumb: bool) -> FileInfo | None:
-    if not name:
+def _file_info(
+    name: str | None,
+    size: int | None,
+    mtime: datetime,
+    storage_key: str | None,
+    thumb_key: str | None,
+) -> FileInfo | None:
+    if not name or not storage_key:
         return None
-    thumb = Path(name).with_suffix(".jpg").name if has_thumb else None
-    return FileInfo(name=name, size=int(size or 0), mtime=_mtime(mtime), thumb=thumb)
+    play_url = None
+    thumb_url = None
+    if thumb_key:
+        try:
+            thumb_url = s3.presigned_get(thumb_key, filename=Path(name).with_suffix(".jpg").name)
+        except Exception:  # noqa: BLE001 — a grade cai no stream autenticado
+            thumb_url = None
+    if s3.playback_cors_ok():
+        try:
+            play_url = s3.presigned_get(storage_key, filename=name)
+        except Exception:  # noqa: BLE001 — o player cai no stream autenticado
+            play_url = None
+    thumb = Path(name).with_suffix(".jpg").name if thumb_key else None
+    return FileInfo(
+        name=name,
+        size=int(size or 0),
+        mtime=_mtime(mtime),
+        thumb=thumb,
+        play_url=play_url,
+        thumb_url=thumb_url,
+    )
 
 
 def list_library_files(db: Session, usuario_id: str) -> list[FileInfo]:
     rows = (
         db.query(Download)
-        .filter(Download.usuario_id == usuario_id, Download.status == JobStatus.done, Download.filename.isnot(None))
+        .filter(
+            Download.usuario_id == usuario_id,
+            Download.status == JobStatus.done,
+            Download.filename.isnot(None),
+            Download.storage_key.isnot(None),
+        )
         .order_by(Download.criado_em.desc())
         .all()
     )
     files: list[FileInfo] = []
-    names: set[str] = set()
     for row in rows:
-        info = _file_info(row.filename, row.tamanho_bytes, row.criado_em, bool(row.thumb_key))
+        info = _file_info(row.filename, row.tamanho_bytes, row.criado_em, row.storage_key, row.thumb_key)
         if info:
             files.append(info)
-            names.add(info.name)
-    if allow_disk_fallback(usuario_id):
-        for local in list_files_disk():
-            if local.name not in names:
-                files.append(local)
-    files.sort(key=lambda item: item.mtime, reverse=True)
     return files
 
 
@@ -62,7 +77,6 @@ def list_library_cortes(db: Session, source_filename: str, usuario_id: str) -> l
         .one_or_none()
     )
     files: list[FileInfo] = []
-    names: set[str] = set()
     if download:
         cortes = (
             db.query(Corte)
@@ -70,20 +84,15 @@ def list_library_cortes(db: Session, source_filename: str, usuario_id: str) -> l
                 Corte.download_id == download.id,
                 Corte.status == JobStatus.done,
                 Corte.filename.isnot(None),
+                Corte.storage_key.isnot(None),
             )
             .order_by(Corte.criado_em.desc())
             .all()
         )
         for row in cortes:
-            info = _file_info(row.filename, row.tamanho_bytes, row.criado_em, bool(row.thumb_key))
+            info = _file_info(row.filename, row.tamanho_bytes, row.criado_em, row.storage_key, row.thumb_key)
             if info:
                 files.append(info)
-                names.add(info.name)
-    if allow_disk_fallback(usuario_id):
-        for local in list_cortes_disk(source_filename):
-            if local.name not in names:
-                files.append(local)
-    files.sort(key=lambda item: item.mtime, reverse=True)
     return files
 
 
@@ -107,7 +116,7 @@ def get_corte_by_filename(db: Session, filename: str, usuario_id: str) -> Corte 
 def library_media_info(db: Session, filename: str, folder: str, usuario_id: str) -> MediaInfo | None:
     if folder == "downloads":
         row = get_download_by_filename(db, filename, usuario_id)
-        if not row or not row.filename:
+        if not row or not row.filename or not row.storage_key:
             return None
         return MediaInfo(
             name=row.filename,
@@ -117,7 +126,7 @@ def library_media_info(db: Session, filename: str, folder: str, usuario_id: str)
             size=int(row.tamanho_bytes or 0),
         )
     row = get_corte_by_filename(db, filename, usuario_id)
-    if not row or not row.filename:
+    if not row or not row.filename or not row.storage_key:
         return None
     duration = float((row.fim_seg or 0) - (row.inicio_seg or 0))
     parent = db.get(Download, row.download_id)

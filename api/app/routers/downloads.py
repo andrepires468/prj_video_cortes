@@ -20,9 +20,12 @@ router = APIRouter(prefix="/api/downloads", tags=["downloads"], dependencies=[De
 
 
 @router.post("", response_model=JobCreated)
-def start_download(body: DownloadRequest) -> JobCreated:
+def start_download(
+    body: DownloadRequest,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobCreated:
     try:
-        job = downloader.create_job(body.url.strip())
+        job = downloader.create_job(body.url.strip(), usuario.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -37,8 +40,11 @@ def start_download(body: DownloadRequest) -> JobCreated:
 
 
 @router.get("/jobs/{job_id}", response_model=JobInfo)
-def job_status(job_id: str) -> JobInfo:
-    job = downloader.get_job(job_id)
+def job_status(
+    job_id: str,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobInfo:
+    job = downloader.get_job(job_id, usuario.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job não encontrado")
     return job
