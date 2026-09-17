@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
 from app.models.orm import Corte, Download
+from app.models.pagination import DEFAULT_PER_PAGE, PaginationMeta, paginate_query
 from app.models.schemas import FileInfo, JobStatus, MediaInfo
 from app.services import s3
 
@@ -50,8 +51,13 @@ def _file_info(
     )
 
 
-def list_library_files(db: Session, usuario_id: str) -> list[FileInfo]:
-    rows = (
+def list_library_files(
+    db: Session,
+    usuario_id: str,
+    page: int = 1,
+    per_page: int = DEFAULT_PER_PAGE,
+) -> tuple[list[FileInfo], PaginationMeta]:
+    query = (
         db.query(Download)
         .filter(
             Download.usuario_id == usuario_id,
@@ -60,14 +66,14 @@ def list_library_files(db: Session, usuario_id: str) -> list[FileInfo]:
             Download.storage_key.isnot(None),
         )
         .order_by(Download.criado_em.desc())
-        .all()
     )
+    rows, meta = paginate_query(query, page, per_page)
     files: list[FileInfo] = []
     for row in rows:
         info = _file_info(row.filename, row.tamanho_bytes, row.criado_em, row.storage_key, row.thumb_key)
         if info:
             files.append(info)
-    return files
+    return files, meta
 
 
 def list_library_cortes(db: Session, source_filename: str, usuario_id: str) -> list[FileInfo]:
@@ -96,21 +102,33 @@ def list_library_cortes(db: Session, source_filename: str, usuario_id: str) -> l
     return files
 
 
-def get_download_by_filename(db: Session, filename: str, usuario_id: str) -> Download | None:
+def get_downloads_by_filename(db: Session, filename: str, usuario_id: str) -> list[Download]:
     return (
         db.query(Download)
         .options(selectinload(Download.cortes))
         .filter(Download.usuario_id == usuario_id, Download.filename == filename)
-        .one_or_none()
+        .order_by(Download.criado_em.desc())
+        .all()
+    )
+
+
+def get_download_by_filename(db: Session, filename: str, usuario_id: str) -> Download | None:
+    rows = get_downloads_by_filename(db, filename, usuario_id)
+    return rows[0] if rows else None
+
+
+def get_cortes_by_filename(db: Session, filename: str, usuario_id: str) -> list[Corte]:
+    return (
+        db.query(Corte)
+        .filter(Corte.usuario_id == usuario_id, Corte.filename == filename)
+        .order_by(Corte.criado_em.desc())
+        .all()
     )
 
 
 def get_corte_by_filename(db: Session, filename: str, usuario_id: str) -> Corte | None:
-    return (
-        db.query(Corte)
-        .filter(Corte.usuario_id == usuario_id, Corte.filename == filename)
-        .one_or_none()
-    )
+    rows = get_cortes_by_filename(db, filename, usuario_id)
+    return rows[0] if rows else None
 
 
 def library_media_info(db: Session, filename: str, folder: str, usuario_id: str) -> MediaInfo | None:
@@ -156,31 +174,33 @@ def delete_library_media(filename: str, folder: str, usuario_id: str) -> tuple[s
     db = SessionLocal()
     try:
         if folder == "cortes":
-            corte = get_corte_by_filename(db, filename, usuario_id)
-            if not corte:
+            cortes = get_cortes_by_filename(db, filename, usuario_id)
+            if not cortes:
                 raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-            s3.remove_object(corte.storage_key)
-            s3.remove_object(corte.thumb_key)
-            db.delete(corte)
+            for corte in cortes:
+                s3.remove_object(corte.storage_key)
+                s3.remove_object(corte.thumb_key)
+                db.delete(corte)
             db.commit()
             return filename, 0
 
         if folder != "downloads":
             raise HTTPException(status_code=400, detail="Pasta inválida")
 
-        download = get_download_by_filename(db, filename, usuario_id)
-        if not download:
+        downloads = get_downloads_by_filename(db, filename, usuario_id)
+        if not downloads:
             raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 
         cortes_deleted = 0
-        for corte in list(download.cortes):
-            s3.remove_object(corte.storage_key)
-            s3.remove_object(corte.thumb_key)
-            db.delete(corte)
-            cortes_deleted += 1
-        s3.remove_object(download.storage_key)
-        s3.remove_object(download.thumb_key)
-        db.delete(download)
+        for download in downloads:
+            for corte in list(download.cortes):
+                s3.remove_object(corte.storage_key)
+                s3.remove_object(corte.thumb_key)
+                db.delete(corte)
+                cortes_deleted += 1
+            s3.remove_object(download.storage_key)
+            s3.remove_object(download.thumb_key)
+            db.delete(download)
         db.commit()
         return filename, cortes_deleted
     finally:

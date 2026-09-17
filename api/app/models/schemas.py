@@ -4,12 +4,15 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.models.pagination import PaginationMeta
+
 
 class JobStatus(str, Enum):
     queued = "queued"
     running = "running"
     done = "done"
     error = "error"
+    cancelled = "cancelled"
 
 
 class DownloadRequest(BaseModel):
@@ -31,6 +34,9 @@ class JobInfo(BaseModel):
     error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    stage: str = "download"
+    download_progress: float = 0.0
+    upload_progress: float = 0.0
 
 
 class FileInfo(BaseModel):
@@ -44,6 +50,7 @@ class FileInfo(BaseModel):
 
 class FileListResponse(BaseModel):
     files: list[FileInfo]
+    pagination: PaginationMeta
 
 
 class DeleteMediaResponse(BaseModel):

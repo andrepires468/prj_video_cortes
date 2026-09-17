@@ -1,6 +1,10 @@
-export type JobStatus = 'queued' | 'running' | 'done' | 'error'
+import type { PaginationMeta } from '~/types/pagination'
+
+export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 export type MediaFolder = 'downloads' | 'cortes'
+
+export type JobStage = 'download' | 'upload'
 
 export interface JobInfo {
   id: string
@@ -12,6 +16,9 @@ export interface JobInfo {
   error?: string | null
   created_at?: string
   updated_at?: string
+  stage?: JobStage
+  download_progress?: number
+  upload_progress?: number
 }
 
 export interface FileInfo {
@@ -21,6 +28,11 @@ export interface FileInfo {
   thumb?: string | null
   play_url?: string | null
   thumb_url?: string | null
+}
+
+export interface FileListResponse {
+  files: FileInfo[]
+  pagination: PaginationMeta
 }
 
 export interface MediaInfo {

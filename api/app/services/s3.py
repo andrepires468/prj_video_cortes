@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -62,14 +63,69 @@ def corte_thumb_key(usuario_id: str, download_id: str, corte_id: str, stem: str)
     return f"cortes/{usuario_id}/{download_id}/{corte_id}/{stem}.jpg"
 
 
-def put_file(key: str, path: Path, content_type: str | None = None) -> str:
+class _ProgressReader:
+    def __init__(
+        self,
+        handle,
+        size: int,
+        on_progress: Callable[[float], None] | None = None,
+        check: Callable[[], None] | None = None,
+    ) -> None:
+        self._handle = handle
+        self._size = size
+        self._on_progress = on_progress
+        self._check = check
+        self._seen = 0
+
+    def read(self, amt: int = -1) -> bytes:
+        if self._check:
+            self._check()
+        data = self._handle.read(amt)
+        if data:
+            self._seen += len(data)
+            if self._on_progress and self._size:
+                self._on_progress(min(self._seen / self._size * 100.0, 100.0))
+        return data
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        result = self._handle.seek(offset, whence)
+        self._seen = self._handle.tell()
+        return result
+
+    def tell(self) -> int:
+        return self._handle.tell()
+
+    def readable(self) -> bool:
+        return True
+
+
+def put_file(
+    key: str,
+    path: Path,
+    content_type: str | None = None,
+    on_progress: Callable[[float], None] | None = None,
+    check: Callable[[], None] | None = None,
+) -> str:
     client = get_client()
-    client.fput_object(
-        settings.minio_bucket,
-        key,
-        str(path),
-        content_type=content_type or content_type_for(path.name),
-    )
+    ctype = content_type or content_type_for(path.name)
+    if on_progress is None and check is None:
+        client.fput_object(
+            settings.minio_bucket,
+            key,
+            str(path),
+            content_type=ctype,
+        )
+        return key
+    size = int(path.stat().st_size)
+    with path.open("rb") as handle:
+        reader = _ProgressReader(handle, size, on_progress, check)
+        client.put_object(
+            settings.minio_bucket,
+            key,
+            reader,
+            size,
+            content_type=ctype,
+        )
     return key
 
 

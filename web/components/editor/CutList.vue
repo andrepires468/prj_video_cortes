@@ -305,6 +305,7 @@ defineExpose({ refresh })
       v-model="playerOpen"
       :src="playingSrc"
       :title="playingFile?.name ?? ''"
+      folder="cortes"
       @error="onPlayerError"
     />
   </section>

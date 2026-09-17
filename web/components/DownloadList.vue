@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import type { FileInfo } from '~/types/downloads'
+import type { PaginationMeta } from '~/types/pagination'
+import { DEFAULT_PER_PAGE } from '~/types/pagination'
 
 const { listFiles, listCortes, mediaThumbUrl, mediaStreamUrl, deleteMedia } = useDownloads()
 const { setDownloadCount } = useLibraryStats()
 const swal = useSwal()
 
 const files = ref<FileInfo[]>([])
+const pagination = ref<PaginationMeta>({
+  page: 1,
+  per_page: DEFAULT_PER_PAGE,
+  total: 0,
+  pages: 1,
+  has_next: false,
+  has_prev: false,
+})
 const loading = ref(true)
 const errorMsg = ref('')
 const removing = ref<string | null>(null)
@@ -87,14 +97,16 @@ function editorLink(name: string): string {
   return `/editor?file=${encodeURIComponent(name)}`
 }
 
-async function refresh() {
+async function load(page = pagination.value.page) {
   loading.value = true
   errorMsg.value = ''
   try {
-    files.value = await listFiles()
+    const res = await listFiles(page, DEFAULT_PER_PAGE)
+    files.value = res.files
+    pagination.value = res.pagination
     thumbFallback.value = new Set()
     thumbBroken.value = new Set()
-    setDownloadCount(files.value.length)
+    setDownloadCount(res.pagination.total)
   } catch (err: unknown) {
     const e = err as { message?: string }
     errorMsg.value = e?.message || 'Falha ao listar arquivos.'
@@ -103,12 +115,24 @@ async function refresh() {
   }
 }
 
+async function refresh() {
+  await load(1)
+}
+
+function onPageChange(page: number) {
+  load(page)
+}
+
 async function removeFile(file: FileInfo) {
   if (removing.value) return
   let cortesCount = 0
   let cortesUnknown = false
   try {
-    const cortes = await listCortes(file.name)
+    const cortes = await withSwalLoading(
+      'Verificando cortes…',
+      'Consultando os cortes deste vídeo.',
+      () => listCortes(file.name),
+    )
     cortesCount = cortes.length
   } catch {
     cortesUnknown = true
@@ -129,7 +153,11 @@ async function removeFile(file: FileInfo) {
       playingFile.value = null
     }
     await deleteMedia(file.name, 'downloads')
-    await refresh()
+    const nextPage =
+      files.value.length === 1 && pagination.value.page > 1
+        ? pagination.value.page - 1
+        : pagination.value.page
+    await load(nextPage)
     await swal.fire({
       icon: 'success',
       title: 'Vídeo removido',
@@ -264,10 +292,17 @@ defineExpose({ refresh })
       </article>
     </div>
 
+    <Pagination
+      :pagination="pagination"
+      :disabled="loading"
+      @update:page="onPageChange"
+    />
+
     <VideoPlayerModal
       v-model="playerOpen"
       :src="playingSrc"
       :title="playingFile?.name ?? ''"
+      folder="downloads"
       @error="onPlayerError"
     />
   </section>

@@ -5,12 +5,14 @@ const emit = defineEmits<{
   completed: []
 }>()
 
-const { startDownload, pollJob } = useDownloads()
+const { startDownload, pollJob, cancelDownload } = useDownloads()
 
 const url = ref('')
 const loading = ref(false)
+const cancelling = ref(false)
 const job = ref<JobInfo | null>(null)
 const errorMsg = ref('')
+const cancelMsg = ref('')
 
 const platforms = [
   { name: 'YouTube', icon: 'mdi-youtube' },
@@ -20,8 +22,36 @@ const platforms = [
   { name: 'Angel', icon: 'mdi-movie-open' },
 ]
 
+const downloadPct = computed(() => {
+  const n = Number(job.value?.download_progress ?? 0)
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0
+})
+const uploadPct = computed(() => {
+  const n = Number(job.value?.upload_progress ?? 0)
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0
+})
+const stage = computed(() => job.value?.stage || 'download')
+const downloadDone = computed(() => downloadPct.value >= 100 || stage.value === 'upload' || job.value?.status === 'done')
+const uploadActive = computed(() => stage.value === 'upload' || job.value?.status === 'done')
+const processActive = computed(() => loading.value && Boolean(job.value))
+
+function downloadHint(): string {
+  if (job.value?.status === 'done') return 'Arquivo salvo na pasta local'
+  if (downloadDone.value) return 'Download local concluído'
+  return job.value?.stage === 'download'
+    ? (job.value.message || 'Baixando o vídeo para a pasta local…')
+    : 'Aguardando início…'
+}
+
+function uploadHint(): string {
+  if (job.value?.status === 'done') return 'Banco e storage atualizados'
+  if (!uploadActive.value) return 'Começa depois do download local'
+  return job.value?.message || 'Gravando no banco e enviando ao storage…'
+}
+
 async function onSubmit() {
   errorMsg.value = ''
+  cancelMsg.value = ''
   job.value = null
   const trimmed = url.value.trim()
   if (!trimmed) {
@@ -35,9 +65,12 @@ async function onSubmit() {
     job.value = created
     const finalJob = await pollJob(created.id, (update) => {
       job.value = update
-    })
+    }, 400)
+    job.value = finalJob
     if (finalJob.status === 'error') {
       errorMsg.value = finalJob.error || finalJob.message || 'Falha no download.'
+    } else if (finalJob.status === 'cancelled') {
+      cancelMsg.value = 'Processo cancelado. Os arquivos gerados até aqui foram apagados.'
     } else {
       emit('completed')
       url.value = ''
@@ -48,6 +81,25 @@ async function onSubmit() {
       e?.data?.detail || e?.message || 'Não foi possível iniciar o download.'
   } finally {
     loading.value = false
+    cancelling.value = false
+  }
+}
+
+async function onCancel() {
+  const id = job.value?.id
+  if (!id || cancelling.value) return
+  cancelling.value = true
+  cancelMsg.value = ''
+  errorMsg.value = ''
+  try {
+    const updated = await cancelDownload(id)
+    job.value = updated
+  } catch (err: unknown) {
+    const e = err as { data?: { detail?: string }; message?: string }
+    if (e?.data?.detail) {
+      errorMsg.value = e.data.detail
+    }
+    cancelling.value = false
   }
 }
 </script>
@@ -94,16 +146,88 @@ async function onSubmit() {
       </v-btn>
     </div>
 
-    <div v-if="job && loading" class="progress-block">
-      <div class="progress-msg">{{ job.message || 'Baixando…' }}</div>
-      <v-progress-linear
-        class="mt-2"
-        :model-value="job.progress"
-        height="8"
-        color="primary"
-        rounded
-      />
-      <div class="progress-pct">{{ job.progress.toFixed(0) }}%</div>
+    <div v-if="job && (processActive || job.status === 'cancelled' || job.status === 'done' || job.status === 'error')" class="process">
+      <div class="process__header">
+        <div>
+          <p class="process__kicker">Mesmo processo</p>
+          <p class="process__title">Download local e envio ao storage</p>
+        </div>
+        <v-btn
+          v-if="processActive"
+          class="cancel-btn"
+          variant="outlined"
+          color="error"
+          rounded="lg"
+          size="small"
+          prepend-icon="mdi-close-circle-outline"
+          :loading="cancelling"
+          :disabled="cancelling"
+          @click="onCancel"
+        >
+          Cancelar
+        </v-btn>
+      </div>
+
+      <ol class="steps">
+        <li
+          class="step"
+          :class="{
+            'step--active': processActive && stage === 'download',
+            'step--done': downloadDone,
+          }"
+        >
+          <div class="step__rail">
+            <span class="step__badge" aria-hidden="true">
+              <v-icon v-if="downloadDone" size="16">mdi-check</v-icon>
+              <span v-else>1</span>
+            </span>
+            <span class="step__line" />
+          </div>
+          <div class="step__body">
+            <div class="step__meta">
+              <strong>Download</strong>
+              <span class="step__pct">{{ downloadPct.toFixed(0) }}%</span>
+            </div>
+            <p class="step__hint">{{ downloadHint() }}</p>
+            <v-progress-linear
+              class="step__bar"
+              :model-value="downloadPct"
+              height="8"
+              color="primary"
+              rounded
+            />
+          </div>
+        </li>
+        <li
+          class="step"
+          :class="{
+            'step--active': processActive && stage === 'upload',
+            'step--done': job.status === 'done' || uploadPct >= 100,
+            'step--wait': !uploadActive,
+          }"
+        >
+          <div class="step__rail">
+            <span class="step__badge" aria-hidden="true">
+              <v-icon v-if="job.status === 'done' || uploadPct >= 100" size="16">mdi-check</v-icon>
+              <span v-else>2</span>
+            </span>
+          </div>
+          <div class="step__body">
+            <div class="step__meta">
+              <strong>Upload</strong>
+              <span class="step__pct">{{ uploadPct.toFixed(0) }}%</span>
+            </div>
+            <p class="step__hint">{{ uploadHint() }}</p>
+            <v-progress-linear
+              class="step__bar"
+              :model-value="uploadPct"
+              height="8"
+              :color="uploadActive ? 'secondary' : 'primary'"
+              rounded
+            />
+          </div>
+        </li>
+      </ol>
     </div>
 
     <v-alert
@@ -117,13 +241,23 @@ async function onSubmit() {
     </v-alert>
 
     <v-alert
+      v-if="cancelMsg"
+      class="mt-4"
+      type="warning"
+      variant="tonal"
+      density="comfortable"
+    >
+      {{ cancelMsg }}
+    </v-alert>
+
+    <v-alert
       v-if="job?.status === 'done' && !loading"
       class="mt-4"
       type="success"
       variant="tonal"
       density="comfortable"
     >
-      Download concluído
+      Download e upload concluídos
       <span v-if="job.filename">: {{ job.filename }}</span>
     </v-alert>
   </section>
@@ -214,19 +348,126 @@ async function onSubmit() {
   flex-shrink: 0;
 }
 
-.progress-msg,
-.progress-pct {
+.process {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+}
+
+.process__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.process__kicker {
+  margin: 0 0 2px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-blue);
+}
+
+.process__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.cancel-btn {
+  flex-shrink: 0;
+  text-transform: none !important;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  opacity: 0.55;
+}
+
+.step--active,
+.step--done {
+  opacity: 1;
+}
+
+.step + .step {
+  margin-top: 4px;
+}
+
+.step__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.step__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-chip);
+  border: 1px solid var(--border-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.step--active .step__badge {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+.step--done .step__badge {
+  background: #15803d;
+  border-color: #15803d;
+}
+
+.step__line {
+  flex: 1;
+  width: 2px;
+  min-height: 22px;
+  margin: 6px 0 2px;
+  background: var(--border-strong);
+}
+
+.step--done .step__line {
+  background: #15803d;
+}
+
+.step__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.step__pct {
+  font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   font-size: 0.85rem;
 }
 
-.progress-pct {
-  margin-top: 4px;
-  font-variant-numeric: tabular-nums;
+.step__hint {
+  margin: 4px 0 8px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }
 
-.mt-2 {
-  margin-top: 8px;
+.step__bar {
+  margin-bottom: 10px;
 }
 
 .mt-4 {
@@ -238,12 +479,14 @@ async function onSubmit() {
     padding: 18px 16px 16px;
   }
 
-  .download-card__row {
+  .download-card__row,
+  .process__header {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .download-btn {
+  .download-btn,
+  .cancel-btn {
     width: 100%;
   }
 }

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.db import SessionLocal
 from app.models.orm import Usuario
+from app.models.pagination import pagination_for_items
 from app.models.schemas import CutJobInfo, CutRequest, FileListResponse, JobCreated, JobStatus
 from app.services import cutter, library
 from app.services.auth import get_current_user
@@ -21,7 +22,8 @@ def list_video_cortes(
         in_db = library.get_download_by_filename(db, filename, usuario.id)
         if not in_db or not in_db.storage_key:
             raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-        return FileListResponse(files=library.list_library_cortes(db, filename, usuario.id))
+        cortes = library.list_library_cortes(db, filename, usuario.id)
+        return FileListResponse(files=cortes, pagination=pagination_for_items(cortes))
     finally:
         db.close()
 

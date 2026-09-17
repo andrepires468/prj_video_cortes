@@ -1,4 +1,5 @@
-import type { CutJobInfo, DeleteMediaResponse, FileInfo, JobInfo, MediaFolder, MediaInfo } from '~/types/downloads'
+import type { CutJobInfo, DeleteMediaResponse, FileInfo, FileListResponse, JobInfo, MediaFolder, MediaInfo } from '~/types/downloads'
+import { DEFAULT_PER_PAGE } from '~/types/pagination'
 
 export function useDownloads() {
   const config = useRuntimeConfig()
@@ -15,9 +16,16 @@ export function useDownloads() {
     return await $fetch<JobInfo>(`${base}/downloads/jobs/${id}`)
   }
 
-  async function listFiles(): Promise<FileInfo[]> {
-    const res = await $fetch<{ files: FileInfo[] }>(`${base}/downloads/files`)
-    return res.files
+  async function cancelDownload(id: string): Promise<JobInfo> {
+    return await $fetch<JobInfo>(`${base}/downloads/jobs/${id}/cancel`, {
+      method: 'POST',
+    })
+  }
+
+  async function listFiles(page = 1, perPage = DEFAULT_PER_PAGE): Promise<FileListResponse> {
+    return await $fetch<FileListResponse>(`${base}/downloads/files`, {
+      query: { page, per_page: perPage },
+    })
   }
 
   async function listCortes(filename: string): Promise<FileInfo[]> {
@@ -37,7 +45,7 @@ export function useDownloads() {
         try {
           const job = await getJob(id)
           onUpdate(job)
-          if (job.status === 'done' || job.status === 'error') {
+          if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
             resolve(job)
             return
           }
@@ -152,6 +160,7 @@ export function useDownloads() {
   return {
     startDownload,
     getJob,
+    cancelDownload,
     listFiles,
     listCortes,
     pollJob,

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { MediaFolder } from '~/types/downloads'
+
 const PLAYER_VOLUME_KEY = 'video-cortes-player-volume'
 
 type StoredVolume = {
@@ -6,20 +8,32 @@ type StoredVolume = {
   muted: boolean
 }
 
-const props = defineProps<{
-  modelValue: boolean
-  src: string
-  title?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    src: string
+    title?: string
+    folder?: MediaFolder
+  }>(),
+  { folder: 'downloads' },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   error: []
 }>()
 
+const { mediaStreamUrl } = useDownloads()
+
 const open = computed({
   get: () => props.modelValue,
   set: (value: boolean) => emit('update:modelValue', value),
+})
+
+const downloadHref = computed(() => {
+  const name = props.title?.trim()
+  if (!name) return ''
+  return mediaStreamUrl(name, props.folder, true)
 })
 
 function close() {
@@ -71,13 +85,33 @@ function onVolumeChange(event: Event) {
 </script>
 
 <template>
-  <v-dialog v-model="open" max-width="920" scrim="black">
+  <v-dialog
+    v-model="open"
+    class="player-dialog"
+    max-width="920"
+    scrim
+    opacity="1"
+  >
     <v-card class="player-card surface-card">
       <v-card-title class="player-title">
         <span class="player-name" :title="title">{{ title }}</span>
-        <v-btn icon variant="text" aria-label="Fechar" @click="close">
-          <v-icon>mdi-close</v-icon>
-        </v-btn>
+        <div class="player-actions">
+          <v-btn
+            v-if="downloadHref"
+            class="player-download"
+            :href="downloadHref"
+            :download="title || 'video.mp4'"
+            variant="outlined"
+            rounded="lg"
+            size="small"
+            prepend-icon="mdi-download"
+          >
+            Baixar
+          </v-btn>
+          <v-btn icon variant="text" aria-label="Fechar" @click="close">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </div>
       </v-card-title>
       <video
         v-if="open && src"
@@ -111,10 +145,46 @@ function onVolumeChange(event: Event) {
   color: var(--text-primary);
 }
 
+.player-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.player-download {
+  text-transform: none !important;
+  letter-spacing: 0.02em !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text-primary) !important;
+}
+
 .player-video {
   display: block;
   width: 100%;
   max-height: min(70vh, 720px);
   background: var(--bg-video);
+}
+
+@media (max-width: 520px) {
+  .player-download {
+    min-width: 40px;
+    padding-inline: 10px !important;
+  }
+
+  .player-download :deep(.v-btn__content) {
+    display: none;
+  }
+}
+</style>
+
+<style>
+.v-overlay.player-dialog > .v-overlay__scrim {
+  background:
+    radial-gradient(120% 80% at 50% 40%, rgb(37 99 235 / 12%), transparent 55%),
+    rgb(8 10 22 / 52%) !important;
+  opacity: 1 !important;
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
 }
 </style>

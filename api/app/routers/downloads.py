@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import SessionLocal
 from app.models.orm import Usuario
+from app.models.pagination import DEFAULT_PER_PAGE, PageQuery, PerPageQuery
 from app.models.schemas import (
     DownloadRequest,
     FileListResponse,
@@ -50,10 +51,31 @@ def job_status(
     return job
 
 
+@router.post("/jobs/{job_id}/cancel", response_model=JobInfo)
+def cancel_download(
+    job_id: str,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobInfo:
+    job = downloader.get_job(job_id, usuario.id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    if job.status == JobStatus.done:
+        raise HTTPException(status_code=409, detail="O processo já foi concluído")
+    cancelled = downloader.cancel_job(job_id, usuario.id)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    return cancelled
+
+
 @router.get("/files", response_model=FileListResponse)
-def files(usuario: Usuario = Depends(get_current_user)) -> FileListResponse:
+def files(
+    usuario: Usuario = Depends(get_current_user),
+    page: int = PageQuery(),
+    per_page: int = PerPageQuery(DEFAULT_PER_PAGE),
+) -> FileListResponse:
     db = SessionLocal()
     try:
-        return FileListResponse(files=library.list_library_files(db, usuario.id))
+        items, pagination = library.list_library_files(db, usuario.id, page=page, per_page=per_page)
+        return FileListResponse(files=items, pagination=pagination)
     finally:
         db.close()
