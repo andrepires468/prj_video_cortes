@@ -40,8 +40,6 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="", validation_alias="CORS_ORIGINS")
     minio_cors_origins: str = Field(default="", validation_alias="MINIO_CORS_ORIGINS")
     playback_url_expire_seconds: int = 7200
-    ytdlp_cookies_file: str = ""
-    youtube_player_clients: str = "tv_embedded,web,android"
 
     @property
     def cors_origin_list(self) -> list[str]:

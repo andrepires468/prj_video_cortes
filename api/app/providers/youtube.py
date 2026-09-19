@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
 from yt_dlp import YoutubeDL
 
-from app.config import settings
 from app.providers.base import ProgressCallback
 from app.services.filenames import build_video_filename
 
@@ -19,37 +17,6 @@ _YOUTUBE_HOSTS = (
     "www.youtu.be",
     "music.youtube.com",
 )
-
-_FORMAT = "bv*+ba/b/bestvideo*+bestaudio/best"
-_BOT_MARKERS = (
-    "sign in to confirm you're not a bot",
-    "confirm you're not a bot",
-    "cookies-from-browser",
-    "use --cookies",
-)
-
-
-def _is_bot_error(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return any(marker in msg for marker in _BOT_MARKERS)
-
-
-def _player_clients() -> list[str | None]:
-    raw = (settings.youtube_player_clients or "").strip()
-    clients = [item.strip() for item in raw.split(",") if item.strip()]
-    if not clients:
-        return [None]
-    return clients
-
-
-def _cookies_opts() -> dict[str, Any]:
-    cookies_path = (settings.ytdlp_cookies_file or "").strip()
-    if not cookies_path:
-        return {}
-    path = Path(cookies_path)
-    if not path.is_file():
-        return {}
-    return {"cookiefile": str(path)}
 
 
 class YoutubeProvider:
@@ -80,33 +47,7 @@ class YoutubeProvider:
         progress_cb: ProgressCallback | None = None,
     ) -> Path:
         dest_dir.mkdir(parents=True, exist_ok=True)
-        errors: list[str] = []
-
-        for client in _player_clients():
-            try:
-                return self._download_with_client(url, dest_dir, progress_cb, client)
-            except Exception as exc:
-                errors.append(f"{client or 'default'}: {exc}")
-                if not _is_bot_error(exc):
-                    raise
-                if progress_cb:
-                    progress_cb(2.0, "YouTube bloqueou o servidor; tentando outro client…")
-
-        hint = (
-            "YouTube pediu confirmação anti-bot no servidor. "
-            "Configure YTDLP_COOKIES_FILE no EasyPanel com cookies exportados do navegador "
-            "(formato Netscape) e tente de novo."
-        )
-        detail = "; ".join(errors[-2:]) if errors else hint
-        raise RuntimeError(f"{hint} Detalhe: {detail}") from None
-
-    def _download_with_client(
-        self,
-        url: str,
-        dest_dir: Path,
-        progress_cb: ProgressCallback | None,
-        player_client: str | None,
-    ) -> Path:
+        # Nome temporário pelo id; renomeamos ao final com o padrão sanitizado
         outtmpl = str(dest_dir / "%(id)s.%(ext)s")
         result_path: dict[str, Path | None] = {"path": None}
 
@@ -133,7 +74,8 @@ class YoutubeProvider:
 
         opts: dict[str, Any] = {
             "outtmpl": outtmpl,
-            "format": _FORMAT,
+            # Melhor vídeo + melhor áudio disponíveis (sem forçar MP4/M4A, que limita resolução).
+            "format": "bv*+ba/b/bestvideo*+bestaudio/best",
             "merge_output_format": "mp4",
             "noplaylist": True,
             "progress_hooks": [_hook],
@@ -141,37 +83,21 @@ class YoutubeProvider:
             "no_warnings": True,
             "restrictfilenames": False,
             "windowsfilenames": True,
-            **_cookies_opts(),
         }
-        if player_client:
-            opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
 
-        info: dict[str, Any] | None = None
-        try:
-            with YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if result_path["path"] is None and info:
-                    prepared = Path(ydl.prepare_filename(info))
-                    if not prepared.exists():
-                        mp4 = prepared.with_suffix(".mp4")
-                        if mp4.exists():
-                            prepared = mp4
-                    result_path["path"] = prepared
-        except Exception:
-            self._cleanup_partial(dest_dir)
-            raise
+        with YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if result_path["path"] is None and info:
+                prepared = Path(ydl.prepare_filename(info))
+                if not prepared.exists():
+                    mp4 = prepared.with_suffix(".mp4")
+                    if mp4.exists():
+                        prepared = mp4
+                result_path["path"] = prepared
 
         path = result_path["path"]
         if path is None or not path.exists():
-            self._cleanup_partial(dest_dir)
             raise RuntimeError("Download concluído, mas o arquivo não foi encontrado.")
-
-        height = int((info or {}).get("height") or 0)
-        if player_client == "android" and height and height <= 360 and progress_cb:
-            progress_cb(
-                99.0,
-                "Download em 360p (fallback Android). Para 1080p, configure YTDLP_COOKIES_FILE.",
-            )
 
         title = (info or {}).get("title") if info else None
         video_id = (info or {}).get("id") if info else None
@@ -189,24 +115,15 @@ class YoutubeProvider:
             if final_path.exists():
                 final_path.unlink()
             path = path.rename(final_path)
-        elif path.suffix != path.suffix.lower():
-            lowered = path.with_suffix(path.suffix.lower())
-            if lowered != path:
-                if lowered.exists():
-                    lowered.unlink()
-                path = path.rename(lowered)
+        else:
+            # Garante extensão em minúsculo mesmo se o nome já bater
+            if path.suffix != path.suffix.lower():
+                lowered = path.with_suffix(path.suffix.lower())
+                if lowered != path:
+                    if lowered.exists():
+                        lowered.unlink()
+                    path = path.rename(lowered)
 
         if progress_cb:
             progress_cb(100.0, "Download concluído")
         return path
-
-    @staticmethod
-    def _cleanup_partial(dest_dir: Path) -> None:
-        for pattern in ("*.mp4", "*.webm", "*.mkv", "*.m4a", "*.part", "*.ytdl"):
-            for item in dest_dir.glob(pattern):
-                try:
-                    item.unlink(missing_ok=True)
-                except OSError:
-                    pass
-        for item in dest_dir.glob("*.temp"):
-            shutil.rmtree(item, ignore_errors=True)
