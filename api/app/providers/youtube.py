@@ -85,17 +85,33 @@ class YoutubeProvider:
             "windowsfilenames": True,
         }
 
+        info: dict[str, Any] | None = None
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            if result_path["path"] is None and info:
-                prepared = Path(ydl.prepare_filename(info))
-                if not prepared.exists():
-                    mp4 = prepared.with_suffix(".mp4")
-                    if mp4.exists():
-                        prepared = mp4
-                result_path["path"] = prepared
+            path = result_path["path"]
+            if path is None or not path.exists():
+                if info:
+                    prepared = Path(ydl.prepare_filename(info))
+                    if not prepared.exists():
+                        for ext in (".mp4", ".webm", ".mkv"):
+                            candidate = prepared.with_suffix(ext)
+                            if candidate.exists():
+                                prepared = candidate
+                                break
+                    if prepared.exists():
+                        path = prepared
+                    else:
+                        video_id = str(info.get("id") or "")
+                        if video_id:
+                            for candidate in dest_dir.glob(f"{video_id}.*"):
+                                if candidate.is_file() and candidate.suffix.lower() in {
+                                    ".mp4",
+                                    ".webm",
+                                    ".mkv",
+                                }:
+                                    path = candidate
+                                    break
 
-        path = result_path["path"]
         if path is None or not path.exists():
             raise RuntimeError("Download concluído, mas o arquivo não foi encontrado.")
 

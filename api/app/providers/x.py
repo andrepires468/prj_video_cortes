@@ -233,17 +233,19 @@ class XProvider:
 
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            if result_path["path"] is None and info:
-                prepared = Path(ydl.prepare_filename(info))
-                if not prepared.exists():
-                    for ext in (".mp4", ".webm", ".mkv"):
-                        candidate = prepared.with_suffix(ext)
-                        if candidate.exists():
-                            prepared = candidate
-                            break
-                result_path["path"] = prepared
+            path = result_path["path"]
+            if path is None or not path.exists():
+                if info:
+                    prepared = Path(ydl.prepare_filename(info))
+                    if not prepared.exists():
+                        for ext in (".mp4", ".webm", ".mkv"):
+                            candidate = prepared.with_suffix(ext)
+                            if candidate.exists():
+                                prepared = candidate
+                                break
+                    if prepared.exists():
+                        path = prepared
 
-        path = result_path["path"]
         if path is None or not path.exists():
             raise RuntimeError(
                 "Download do X concluído, mas o arquivo de vídeo não foi encontrado. "
