@@ -18,11 +18,19 @@ __pycache__/
 venv/
 env/
 
-# Env / secrets (mantém .env.example versionado)
+# Env / secrets — versiona development e production da web (sem senhas)
 .env
 .env.*
 !.env.example
 !**/.env.example
+!.env.development
+!**/.env.development
+!.env.production
+!**/.env.production
+!.env.development.example
+!**/.env.development.example
+!.env.production.example
+!**/.env.production.example
 *.pem
 *.key
 *.p12

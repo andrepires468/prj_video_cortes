@@ -39,8 +39,9 @@ services:
     ports:
       - "3101:3000"
     env_file:
-      - ./web/.env
+      - ./web/.env.development
     environment:
+      # Rede Docker: a API não é 127.0.0.1. Compose de produção usa .env.production.
       NUXT_API_URL: http://api:8000
       NUXT_PUBLIC_API_BASE: /api
       NUXT_DOCKER_DEV: "1"

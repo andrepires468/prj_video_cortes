@@ -34,7 +34,7 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   runtimeConfig: {
-    // NUXT_API_URL e NUXT_PUBLIC_API_BASE vêm de web/.env (Compose sobrescreve no Docker)
+    // Local: web/.env.development  |  Produção: web/.env.production
     apiUrl: process.env.NUXT_API_URL || 'http://127.0.0.1:5101',
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '/api',
