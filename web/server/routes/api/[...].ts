@@ -14,9 +14,11 @@ export default defineEventHandler(async (event) => {
     const cookie = getRequestHeader(event, 'cookie')
     const range = getRequestHeader(event, 'range')
     const authorization = getRequestHeader(event, 'authorization')
+    const ifNoneMatch = getRequestHeader(event, 'if-none-match')
     if (cookie) headers.cookie = cookie
     if (range) headers.range = range
     if (authorization) headers.authorization = authorization
+    if (ifNoneMatch) headers['if-none-match'] = ifNoneMatch
 
     const upstream = await fetch(target, { method: 'GET', headers })
     setResponseStatus(event, upstream.status)
@@ -32,10 +34,10 @@ export default defineEventHandler(async (event) => {
       const value = upstream.headers.get(key)
       if (value) setResponseHeader(event, key, value)
     }
-    setResponseHeader(event, 'x-accel-buffering', 'no')
-    if (!upstream.body) {
+    if (upstream.status === 304 || !upstream.body) {
       return null
     }
+    setResponseHeader(event, 'x-accel-buffering', 'no')
     return sendStream(event, upstream.body)
   }
 

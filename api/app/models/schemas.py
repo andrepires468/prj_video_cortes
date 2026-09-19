@@ -40,6 +40,7 @@ class JobInfo(BaseModel):
 
 
 class FileInfo(BaseModel):
+    id: str
     name: str
     size: int
     mtime: datetime
@@ -82,8 +83,8 @@ class CutSegment(BaseModel):
 
 
 class CutRequest(BaseModel):
-    filename: str = Field(..., min_length=1)
-    source_filename: Optional[str] = Field(
+    download_id: str = Field(..., min_length=1)
+    source_corte_id: Optional[str] = Field(
         default=None,
         description="Corte já existente a usar como origem; o arquivo gerado continua ligado ao vídeo original",
     )

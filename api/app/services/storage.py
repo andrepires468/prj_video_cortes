@@ -111,6 +111,7 @@ def _video_file_info(entry: Path) -> FileInfo | None:
 
     stat = entry.stat()
     return FileInfo(
+        id=entry.name,
         name=entry.name,
         size=stat.st_size,
         mtime=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),

@@ -13,6 +13,7 @@ const props = withDefaults(
     modelValue: boolean
     src: string
     title?: string
+    mediaId?: string
     folder?: MediaFolder
   }>(),
   { folder: 'downloads' },
@@ -31,9 +32,9 @@ const open = computed({
 })
 
 const downloadHref = computed(() => {
-  const name = props.title?.trim()
-  if (!name) return ''
-  return mediaStreamUrl(name, props.folder, true)
+  const id = props.mediaId?.trim()
+  if (!id) return ''
+  return mediaStreamUrl(id, props.folder, true)
 })
 
 function close() {
