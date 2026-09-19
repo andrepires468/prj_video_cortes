@@ -1,0 +1,27 @@
+---
+description: MySQL e MinIO deste projeto são produção — manipular com máximo rigor
+alwaysApply: true
+---
+
+# Infraestrutura de produção (MySQL + MinIO)
+
+O MySQL (`videocortes`) e o MinIO S3 (bucket `videocortes`) acessados via MCP são **ambientes de produção**. Trate qualquer leitura ou escrita com máximo rigor.
+
+## Obrigatório
+
+- Prefira operação **somente leitura** (SELECT, listar buckets/objetos, stats).
+- Antes de INSERT, UPDATE, DELETE, PUT, criar/apagar bucket ou objeto: **confirme com o usuário** o alvo exato e o efeito.
+- Nunca execute DROP, TRUNCATE, DELETE amplo, overwrite em massa ou `force` delete sem pedido **explícito** nesta conversa.
+- Altere só o mínimo necessário. Não “limpe”, migre, popularize ou reorganize dados por conta própria.
+- Não crie tabelas, buckets, policies ou lifecycle rules sem pedido explícito.
+- Restrinja o MinIO ao bucket `videocortes`. Não tente acessar outros buckets.
+- Não copie credenciais, dumps ou objetos privados para o repositório, commits ou arquivos versionados.
+
+## Exemplos
+
+```text
+❌ BAD: DELETE FROM downloads;  (sem pedido explícito)
+❌ BAD: apagar objetos antigos do MinIO para “organizar”
+✅ GOOD: SELECT COUNT(*) FROM ... e mostrar o resultado antes de qualquer escrita
+✅ GOOD: “Vou atualizar a linha id=12. Confirma?”
+```

@@ -4,6 +4,11 @@ node_modules
 .output
 dist
 
+# Env local — a imagem de produção usa só .env.production
+.env.development
+.env.development.example
+.env.local
+
 # Logs / OS
 *.log
 .DS_Store

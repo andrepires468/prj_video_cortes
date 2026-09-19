@@ -42,17 +42,25 @@ function formatDate(iso: string): string {
   }
 }
 
-function thumbSrc(file: FileInfo): string {
-  return mediaThumbUrl(file.name, 'cortes')
+function thumbSrc(file: FileInfo): string | null {
+  if (brokenThumbs.value.has(`${file.name}:all`)) return null
+  if (brokenThumbs.value.has(file.name) || !file.thumb_url) {
+    return mediaThumbUrl(file.name, 'cortes')
+  }
+  return file.thumb_url
 }
 
 function showThumb(file: FileInfo): boolean {
-  return !brokenThumbs.value.has(file.name)
+  return thumbSrc(file) !== null
 }
 
 function onThumbError(name: string) {
   const next = new Set(brokenThumbs.value)
-  next.add(name)
+  if (!next.has(name)) {
+    next.add(name)
+  } else {
+    next.add(`${name}:all`)
+  }
   brokenThumbs.value = next
 }
 
@@ -80,9 +88,27 @@ function isEditing(cutName: string) {
   return Boolean(props.activeCut) && props.activeCut === cutName
 }
 
-const playingSrc = computed(() =>
-  playingFile.value ? mediaStreamUrl(playingFile.value.name, 'cortes') : '',
-)
+const playingSrc = ref('')
+
+async function resolvePlayingSrc() {
+  const file = playingFile.value
+  if (!playerOpen.value || !file) {
+    playingSrc.value = ''
+    return
+  }
+  playingSrc.value = file.play_url || mediaStreamUrl(file.name, 'cortes')
+}
+
+function onPlayerError() {
+  const file = playingFile.value
+  if (!file) return
+  const fallback = mediaStreamUrl(file.name, 'cortes')
+  if (playingSrc.value !== fallback) {
+    playingSrc.value = fallback
+  }
+}
+
+watch([playingFile, playerOpen], resolvePlayingSrc)
 
 async function refresh() {
   if (!props.filename) {
@@ -279,6 +305,8 @@ defineExpose({ refresh })
       v-model="playerOpen"
       :src="playingSrc"
       :title="playingFile?.name ?? ''"
+      folder="cortes"
+      @error="onPlayerError"
     />
   </section>
 </template>

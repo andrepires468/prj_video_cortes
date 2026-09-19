@@ -4,12 +4,15 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.models.pagination import PaginationMeta
+
 
 class JobStatus(str, Enum):
     queued = "queued"
     running = "running"
     done = "done"
     error = "error"
+    cancelled = "cancelled"
 
 
 class DownloadRequest(BaseModel):
@@ -31,6 +34,9 @@ class JobInfo(BaseModel):
     error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    stage: str = "download"
+    download_progress: float = 0.0
+    upload_progress: float = 0.0
 
 
 class FileInfo(BaseModel):
@@ -38,10 +44,13 @@ class FileInfo(BaseModel):
     size: int
     mtime: datetime
     thumb: Optional[str] = None
+    play_url: Optional[str] = None
+    thumb_url: Optional[str] = None
 
 
 class FileListResponse(BaseModel):
     files: list[FileInfo]
+    pagination: PaginationMeta
 
 
 class DeleteMediaResponse(BaseModel):
@@ -51,6 +60,7 @@ class DeleteMediaResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+    database: str = "ok"
 
 
 class MediaInfo(BaseModel):
@@ -59,6 +69,11 @@ class MediaInfo(BaseModel):
     width: Optional[int] = None
     height: Optional[int] = None
     size: int
+
+
+class PlaybackUrlResponse(BaseModel):
+    url: str
+    expires_in: int
 
 
 class CutSegment(BaseModel):
@@ -70,7 +85,7 @@ class CutRequest(BaseModel):
     filename: str = Field(..., min_length=1)
     source_filename: Optional[str] = Field(
         default=None,
-        description="Corte em data/cortes a usar como origem; o arquivo gerado continua ligado ao vídeo original",
+        description="Corte já existente a usar como origem; o arquivo gerado continua ligado ao vídeo original",
     )
     markers: list[float] = Field(default_factory=list)
     segments: list[CutSegment] | None = None
@@ -87,3 +102,20 @@ class CutJobInfo(BaseModel):
     error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    senha: str = Field(..., min_length=1, max_length=128)
+
+
+class UsuarioPublic(BaseModel):
+    id: str
+    email: str
+    nome: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    usuario: UsuarioPublic

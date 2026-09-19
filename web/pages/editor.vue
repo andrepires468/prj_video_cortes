@@ -6,6 +6,7 @@ const router = useRouter()
 const {
   mediaStreamUrl,
   getMediaInfo,
+  getPlaybackUrl,
   startCuts,
   pollCutJob,
 } = useDownloads()
@@ -51,9 +52,7 @@ const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const speed = ref(1)
 const speedText = ref('1.0')
 
-const streamUrl = computed(() =>
-  mediaName.value ? mediaStreamUrl(mediaName.value, mediaFolder.value) : '',
-)
+const streamUrl = ref('')
 
 const sortedMarkerTimes = computed(() =>
   [...markers.value].sort((a, b) => a - b),
@@ -141,14 +140,22 @@ async function load() {
 
   if (!filename.value) {
     errorMsg.value = 'Nenhum arquivo selecionado.'
+    streamUrl.value = ''
     loading.value = false
     return
   }
 
+  streamUrl.value = mediaStreamUrl(mediaName.value, mediaFolder.value)
   try {
     const info = await getMediaInfo(mediaName.value, mediaFolder.value)
     duration.value = info.duration
+    void getPlaybackUrl(mediaName.value, mediaFolder.value).then((playback) => {
+      if (playback && !playback.includes('/api/media/stream')) {
+        streamUrl.value = playback
+      }
+    })
   } catch (err: unknown) {
+    streamUrl.value = ''
     const e = err as { data?: { detail?: string }; message?: string }
     errorMsg.value = e?.data?.detail || e?.message || 'Falha ao carregar o vídeo.'
   } finally {
@@ -164,6 +171,14 @@ function onLoadedMetadata() {
   }
   applyVolume()
   applyPlaybackRate()
+}
+
+function onVideoError() {
+  if (!mediaName.value) return
+  const fallback = mediaStreamUrl(mediaName.value, mediaFolder.value)
+  if (streamUrl.value !== fallback) {
+    streamUrl.value = fallback
+  }
 }
 
 function applyVolume() {
@@ -311,7 +326,7 @@ async function exportCuts() {
     if (finalJob.status === 'error') {
       errorMsg.value = finalJob.error || finalJob.message || 'Falha ao exportar.'
     } else {
-      successMsg.value = `Arquivo salvo em data/cortes: ${finalJob.outputs.join(', ')}`
+      successMsg.value = `Corte salvo: ${finalJob.outputs.join(', ')}`
       await cutListRef.value?.refresh()
     }
   } catch (err: unknown) {
@@ -462,9 +477,10 @@ function editOriginal() {
           ref="videoRef"
           class="preview-video"
           :src="streamUrl"
-          preload="metadata"
+          preload="auto"
           playsinline
           @loadedmetadata="onLoadedMetadata"
+          @error="onVideoError"
           @timeupdate="onTimeUpdate"
           @play="onPlay"
           @pause="onPause"

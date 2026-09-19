@@ -1,0 +1,64 @@
+---
+description: Diretrizes da migração para MySQL, MinIO S3 e deploy Docker no EasyPanel
+alwaysApply: true
+---
+
+# Migração v2 — MySQL + MinIO + EasyPanel
+
+Objetivo: o app deixa de ser só local (disco em `data/`) e passa a usuários, metadados no MySQL `videocortes` e arquivos no MinIO (bucket `videocortes`), pronto para Docker numa VPS EasyPanel.
+
+MySQL e MinIO **já existem em produção**. A regra `producao-mysql-minio.mdc` vale sempre. Esta regra não autoriza CREATE/DROP/PUT em produção sozinha: **propor → confirmar → executar**.
+
+## Monorepo: dois serviços distintos
+
+Um único git (`prj_video_cortes`), duas apps independentes — não é workspace npm/pnpm:
+
+- `api/` — FastAPI (Dockerfile, `requirements.txt`, porta 8000 / host 5101)
+- `web/` — Nuxt 3 (Dockerfile, `package.json`, porta 3000 / host 3101)
+
+Não unificar processos, imagens ou `package.json`. Comunicação só por HTTP (`NUXT_API_URL` → API). No EasyPanel, deploy separado de **api** e **web**.
+
+## Stack (não mudar sem pedido)
+
+- API: FastAPI + Uvicorn + Pydantic. ORM previsto: SQLAlchemy 2 + Alembic.
+- Web: Vue 3 + Nuxt 3 + Vuetify 3 + CSS (sem Tailwind, sem outro UI kit).
+- Jobs de download/corte: persistir status no banco (hoje estão em memória/disco).
+- Vídeos: yt-dlp + FFmpeg em **temp local**, upload ao MinIO, apagar temp. Não versionar mídia.
+
+## Tabelas alvo (confirmar antes de criar)
+
+- `usuarios` — id, email único, senha_hash, nome, criado_em, atualizado_em. Auth (JWT ou sessão) entra nesta migração.
+- `downloads` — id, usuario_id, url_origem, storage_key, thumb_key, provider, filename, status, progress, mensagem, tamanho/duração, erro, timestamps. FK usuario (RESTRICT).
+- `cortes` — id, download_id (CASCADE), usuario_id (RESTRICT), corte_origem_id opcional, storage_key, intervalo, velocidade, status de job, timestamps.
+
+Não criar outras tabelas sem pedido. Seeds só em ambiente local/dev.
+
+## MinIO
+
+- Só o bucket `videocortes`.
+- Chaves: `downloads/{usuario_id}/{download_id}/...` e `cortes/{usuario_id}/{download_id}/{corte_id}/...`.
+- Playback/download: URL pré-assinada ou stream autenticado pela API. Não expor secret key no frontend.
+- Credenciais só em env / EasyPanel / `.cursor/mcp.json` local. Nunca no git.
+
+## Docker / EasyPanel
+
+- Produção: serviços **api** e **web** no EasyPanel. MySQL e MinIO são **externos** (já no EasyPanel); não subir MySQL/MinIO no compose da app.
+- `docker-compose.prod.yml` (ou compose EasyPanel): sem bind mount de código, sem volumes `data/downloads` e `data/cortes` como storage principal.
+- Tudo configurável por env: `DATABASE_URL` / MYSQL_*, `MINIO_*` (endpoint, access, secret, bucket, SSL), `NUXT_API_URL`, `JWT_SECRET` (ou equivalente). Atualizar `.env.example` sem valores reais.
+- Healthcheck da API (`/api/health`) deve checar DB (e, se barato, alcance ao MinIO).
+- Dev local continua com Compose; apontar para produção só com confirmação explícita.
+
+## Como implementar
+
+1. Propor o passo (schema, env, código) e esperar ok em escritas de produção.
+2. Incremental: config/env → models/migrations → storage S3 → persistir downloads → cortes → auth/usuarios → compose EasyPanel → UI.
+3. Manter routers FastAPI (`downloads`, `media`, `editor`). Não reescrever o frontend de uma vez; adaptar páginas ao novo contrato.
+4. Não apagar o fluxo em disco até S3+DB estarem no caminho feliz (download, listar, stream, cortar, apagar).
+
+```text
+❌ BAD: CREATE TABLE no MySQL de produção no primeiro passo, sem confirmar
+❌ BAD: commitar senha MinIO/MySQL ou JWT_SECRET
+❌ BAD: trocar FastAPI/Vue/Vuetify no meio da migração
+✅ GOOD: Alembic local + SQL revisado; aplicar em produção só após ok
+✅ GOOD: download → temp → PUT MinIO → INSERT downloads → responder job
+```

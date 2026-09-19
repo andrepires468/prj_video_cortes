@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import threading
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.db import SessionLocal
+from app.models.orm import Usuario
+from app.models.pagination import DEFAULT_PER_PAGE, PageQuery, PerPageQuery
 from app.models.schemas import (
     DownloadRequest,
     FileListResponse,
@@ -11,16 +14,19 @@ from app.models.schemas import (
     JobInfo,
     JobStatus,
 )
-from app.services import downloader
-from app.services.storage import list_files
+from app.services import downloader, library
+from app.services.auth import get_current_user
 
-router = APIRouter(prefix="/api/downloads", tags=["downloads"])
+router = APIRouter(prefix="/api/downloads", tags=["downloads"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("", response_model=JobCreated)
-def start_download(body: DownloadRequest) -> JobCreated:
+def start_download(
+    body: DownloadRequest,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobCreated:
     try:
-        job = downloader.create_job(body.url.strip())
+        job = downloader.create_job(body.url.strip(), usuario.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -35,13 +41,41 @@ def start_download(body: DownloadRequest) -> JobCreated:
 
 
 @router.get("/jobs/{job_id}", response_model=JobInfo)
-def job_status(job_id: str) -> JobInfo:
-    job = downloader.get_job(job_id)
+def job_status(
+    job_id: str,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobInfo:
+    job = downloader.get_job(job_id, usuario.id)
     if not job:
         raise HTTPException(status_code=404, detail="Job não encontrado")
     return job
 
 
+@router.post("/jobs/{job_id}/cancel", response_model=JobInfo)
+def cancel_download(
+    job_id: str,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobInfo:
+    job = downloader.get_job(job_id, usuario.id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    if job.status == JobStatus.done:
+        raise HTTPException(status_code=409, detail="O processo já foi concluído")
+    cancelled = downloader.cancel_job(job_id, usuario.id)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    return cancelled
+
+
 @router.get("/files", response_model=FileListResponse)
-def files() -> FileListResponse:
-    return FileListResponse(files=list_files())
+def files(
+    usuario: Usuario = Depends(get_current_user),
+    page: int = PageQuery(),
+    per_page: int = PerPageQuery(DEFAULT_PER_PAGE),
+) -> FileListResponse:
+    db = SessionLocal()
+    try:
+        items, pagination = library.list_library_files(db, usuario.id, page=page, per_page=per_page)
+        return FileListResponse(files=items, pagination=pagination)
+    finally:
+        db.close()

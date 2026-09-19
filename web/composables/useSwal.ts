@@ -7,6 +7,36 @@ export function swalTheme(): 'dark' {
   return 'dark'
 }
 
+export async function withSwalLoading<T>(
+  title: string,
+  text: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const swal = useSwal()
+  let result: T | undefined
+  let error: unknown
+  await swal.fire({
+    title,
+    text,
+    theme: swalTheme(),
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    showConfirmButton: false,
+    didOpen: async () => {
+      swal.showLoading()
+      try {
+        result = await task()
+      } catch (err) {
+        error = err
+      } finally {
+        swal.close()
+      }
+    },
+  })
+  if (error) throw error
+  return result as T
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')

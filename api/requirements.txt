@@ -3,3 +3,10 @@ uvicorn[standard]==0.34.0
 yt-dlp>=2025.10.14
 pydantic==2.10.5
 pydantic-settings==2.7.1
+sqlalchemy==2.0.36
+alembic==1.14.0
+pymysql==1.1.1
+cryptography==44.0.0
+bcrypt==4.2.1
+minio==7.2.12
+PyJWT==2.10.1

@@ -1,26 +1,43 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.db import SessionLocal
+from app.models.orm import Usuario
+from app.models.pagination import pagination_for_items
 from app.models.schemas import CutJobInfo, CutRequest, FileListResponse, JobCreated, JobStatus
-from app.services import cutter
-from app.services.storage import list_cortes, resolve_download_file
+from app.services import cutter, library
+from app.services.auth import get_current_user
 
-router = APIRouter(prefix="/api/editor", tags=["editor"])
+router = APIRouter(prefix="/api/editor", tags=["editor"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/cortes", response_model=FileListResponse)
-def list_video_cortes(filename: str = Query(..., min_length=1)) -> FileListResponse:
-    resolve_download_file(filename)
-    return FileListResponse(files=list_cortes(filename))
+def list_video_cortes(
+    filename: str = Query(..., min_length=1),
+    usuario: Usuario = Depends(get_current_user),
+) -> FileListResponse:
+    db = SessionLocal()
+    try:
+        in_db = library.get_download_by_filename(db, filename, usuario.id)
+        if not in_db or not in_db.storage_key:
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+        cortes = library.list_library_cortes(db, filename, usuario.id)
+        return FileListResponse(files=cortes, pagination=pagination_for_items(cortes))
+    finally:
+        db.close()
 
 
 @router.post("/cuts", response_model=JobCreated)
-def start_cuts(body: CutRequest) -> JobCreated:
+def start_cuts(
+    body: CutRequest,
+    usuario: Usuario = Depends(get_current_user),
+) -> JobCreated:
     try:
         job = cutter.create_cut_job(
             filename=body.filename,
             markers=body.markers,
+            usuario_id=usuario.id,
             segments=body.segments,
             speed=body.speed,
             source_filename=body.source_filename,

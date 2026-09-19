@@ -286,8 +286,8 @@ class XProvider:
                         break
                     handle.write(chunk)
                     downloaded += len(chunk)
-                    if progress_cb and total:
-                        pct = downloaded / total * 99.0
+                    if progress_cb:
+                        pct = downloaded / total * 99.0 if total else 0.0
                         progress_cb(min(pct, 99.0), f"Baixando do X… {pct:.1f}%")
 
     def _finalize_file(

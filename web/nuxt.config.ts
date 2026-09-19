@@ -34,6 +34,7 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   runtimeConfig: {
+    // Local: web/.env.development  |  Produção: web/.env.production
     apiUrl: process.env.NUXT_API_URL || 'http://127.0.0.1:5101',
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '/api',

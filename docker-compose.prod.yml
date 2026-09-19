@@ -6,6 +6,9 @@ services:
       - ./data/cortes:/data/cortes
     ports:
       - "5101:8000"
+    env_file:
+      - path: ./api/.env
+        required: false
     environment:
       DOWNLOADS_DIR: /data/downloads
       CORTES_DIR: /data/cortes
@@ -15,9 +18,8 @@ services:
     build: ./web
     ports:
       - "3101:3000"
-    environment:
-      NUXT_API_URL: http://api:8000
-      NUXT_PUBLIC_API_BASE: /api
+    env_file:
+      - ./web/.env.production
     depends_on:
       - api
     restart: unless-stopped

@@ -10,11 +10,16 @@ def thumbnail_path_for(video_path: Path) -> Path:
 
 
 def generate_thumbnail(video_path: Path, at_seconds: float = 1.0) -> Path:
-    """Extrai um frame do vídeo e salva como JPEG em downloads."""
+    """Extrai um frame do vídeo e salva como JPEG ao lado do arquivo."""
+    return generate_thumbnail_to(video_path, thumbnail_path_for(video_path), at_seconds)
+
+
+def generate_thumbnail_to(video_path: Path, dest: Path, at_seconds: float = 1.0) -> Path:
+    """Extrai um frame para `dest` (pode ser temp; não assume pasta data/)."""
     if not video_path.is_file():
         raise FileNotFoundError(f"Vídeo não encontrado: {video_path}")
 
-    thumb = thumbnail_path_for(video_path)
+    thumb = dest
     # Tenta no segundo pedido; se falhar (vídeo muito curto), tenta no início
     attempts = [max(0.0, at_seconds), 0.0]
     last_error = ""
