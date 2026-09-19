@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from minio import Minio
+from minio.commonconfig import CopySource
 from minio.error import S3Error
 
 from app.config import settings
@@ -53,6 +54,24 @@ def download_object_key(usuario_id: str, download_id: str, filename: str) -> str
 
 def download_thumb_key(usuario_id: str, download_id: str, stem: str) -> str:
     return f"downloads/{usuario_id}/{download_id}/{stem}.jpg"
+
+
+def thumb_backup_key(thumb_key: str) -> str:
+    """`path/stem.jpg` → `path/stem_bkp.jpg`. Não altera chave que já é backup."""
+    key = thumb_key.replace("\\", "/")
+    if "/" in key:
+        parent, name = key.rsplit("/", 1)
+    else:
+        parent, name = "", key
+    if "." in name:
+        stem, ext = name.rsplit(".", 1)
+        suffix = f".{ext}"
+    else:
+        stem, suffix = name, ""
+    if stem.endswith("_bkp"):
+        return key
+    backup = f"{stem}_bkp{suffix}"
+    return f"{parent}/{backup}" if parent else backup
 
 
 def corte_object_key(usuario_id: str, download_id: str, corte_id: str, filename: str) -> str:
@@ -133,6 +152,16 @@ def get_file(key: str, dest: Path) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     get_client().fget_object(settings.minio_bucket, key, str(dest))
     return dest
+
+
+def copy_object(src_key: str, dest_key: str) -> str:
+    """Copia um objeto no mesmo bucket. Não apaga a origem."""
+    get_client().copy_object(
+        settings.minio_bucket,
+        dest_key,
+        CopySource(settings.minio_bucket, src_key),
+    )
+    return dest_key
 
 
 def object_exists(key: str) -> bool:

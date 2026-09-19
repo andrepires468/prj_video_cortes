@@ -22,6 +22,7 @@ export interface JobInfo {
 }
 
 export interface FileInfo {
+  id: string
   name: string
   size: number
   mtime: string

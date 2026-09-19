@@ -100,21 +100,21 @@ def _atempo_filter(speed: float) -> str:
 
 
 def _source_from_library(
-    filename: str,
-    source_filename: str | None,
+    download_id: str,
+    source_corte_id: str | None,
     usuario_id: str,
 ) -> tuple[Download, str, str, float, str | None]:
     db = SessionLocal()
     try:
-        download = library.get_download_by_filename(db, filename, usuario_id)
+        download = library.get_download_by_id(db, download_id, usuario_id)
         if not download or not download.storage_key or not download.filename:
             raise ValueError("Arquivo não encontrado")
         duration = float(download.duracao_seg or 0)
         source_key = download.storage_key
         source_name = download.filename
         corte_origem_id = None
-        if source_filename:
-            origem = library.get_corte_by_filename(db, source_filename, usuario_id)
+        if source_corte_id:
+            origem = library.get_corte_by_id(db, source_corte_id, usuario_id)
             if (
                 not origem
                 or origem.download_id != download.id
@@ -134,15 +134,15 @@ def _source_from_library(
 
 
 def create_cut_job(
-    filename: str,
+    download_id: str,
     markers: list[float],
     usuario_id: str,
     segments: list[CutSegment] | None = None,
     speed: float = 1.0,
-    source_filename: str | None = None,
+    source_corte_id: str | None = None,
 ) -> CutJobInfo:
     download, source_key, source_name, duration, corte_origem_id = _source_from_library(
-        filename, source_filename, usuario_id
+        download_id, source_corte_id, usuario_id
     )
 
     if segments:
@@ -166,7 +166,7 @@ def create_cut_job(
         status=JobStatus.queued,
         progress=0.0,
         message="Na fila",
-        filename=filename,
+        filename=download.filename or download_id,
         outputs=[],
         created_at=_now(),
         updated_at=_now(),
@@ -182,7 +182,7 @@ def create_cut_job(
             usuario_id,
             source_key,
             source_name,
-            filename,
+            download.filename or download_id,
             resolved,
             _clamp_speed(speed),
             corte_origem_id,

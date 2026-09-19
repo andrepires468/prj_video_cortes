@@ -14,15 +14,15 @@ router = APIRouter(prefix="/api/editor", tags=["editor"], dependencies=[Depends(
 
 @router.get("/cortes", response_model=FileListResponse)
 def list_video_cortes(
-    filename: str = Query(..., min_length=1),
+    id: str = Query(..., min_length=1, description="ID do download"),
     usuario: Usuario = Depends(get_current_user),
 ) -> FileListResponse:
     db = SessionLocal()
     try:
-        in_db = library.get_download_by_filename(db, filename, usuario.id)
+        in_db = library.get_download_by_id(db, id, usuario.id)
         if not in_db or not in_db.storage_key:
             raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-        cortes = library.list_library_cortes(db, filename, usuario.id)
+        cortes = library.list_library_cortes(db, id, usuario.id)
         return FileListResponse(files=cortes, pagination=pagination_for_items(cortes))
     finally:
         db.close()
@@ -35,12 +35,12 @@ def start_cuts(
 ) -> JobCreated:
     try:
         job = cutter.create_cut_job(
-            filename=body.filename,
+            download_id=body.download_id,
             markers=body.markers,
             usuario_id=usuario.id,
             segments=body.segments,
             speed=body.speed,
-            source_filename=body.source_filename,
+            source_corte_id=body.source_corte_id,
         )
     except HTTPException:
         raise

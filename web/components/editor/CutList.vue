@@ -2,7 +2,7 @@
 import type { FileInfo } from '~/types/downloads'
 
 const props = defineProps<{
-  filename: string
+  downloadId: string
   activeCut?: string
 }>()
 
@@ -13,6 +13,7 @@ const emit = defineEmits<{
 const { listCortes, mediaThumbUrl, mediaStreamUrl, deleteMedia } = useDownloads()
 const swal = useSwal()
 
+const THUMB_EAGER_COUNT = 8
 const files = ref<FileInfo[]>([])
 const loading = ref(false)
 const errorMsg = ref('')
@@ -43,11 +44,8 @@ function formatDate(iso: string): string {
 }
 
 function thumbSrc(file: FileInfo): string | null {
-  if (brokenThumbs.value.has(`${file.name}:all`)) return null
-  if (brokenThumbs.value.has(file.name) || !file.thumb_url) {
-    return mediaThumbUrl(file.name, 'cortes')
-  }
-  return file.thumb_url
+  if (brokenThumbs.value.has(file.id) || !file.thumb) return null
+  return mediaThumbUrl(file.id, 'cortes')
 }
 
 function showThumb(file: FileInfo): boolean {
@@ -55,12 +53,9 @@ function showThumb(file: FileInfo): boolean {
 }
 
 function onThumbError(name: string) {
+  if (brokenThumbs.value.has(name)) return
   const next = new Set(brokenThumbs.value)
-  if (!next.has(name)) {
-    next.add(name)
-  } else {
-    next.add(`${name}:all`)
-  }
+  next.add(name)
   brokenThumbs.value = next
 }
 
@@ -71,21 +66,21 @@ function playFile(file: FileInfo) {
 }
 
 function downloadHref(file: FileInfo): string {
-  return mediaStreamUrl(file.name, 'cortes', true)
+  return mediaStreamUrl(file.id, 'cortes', true)
 }
 
-function editLink(cutName: string) {
+function editLink(cutId: string) {
   return {
     path: '/editor',
     query: {
-      file: props.filename,
-      cut: cutName,
+      id: props.downloadId,
+      cut: cutId,
     },
   }
 }
 
-function isEditing(cutName: string) {
-  return Boolean(props.activeCut) && props.activeCut === cutName
+function isEditing(cutId: string) {
+  return Boolean(props.activeCut) && props.activeCut === cutId
 }
 
 const playingSrc = ref('')
@@ -96,13 +91,13 @@ async function resolvePlayingSrc() {
     playingSrc.value = ''
     return
   }
-  playingSrc.value = file.play_url || mediaStreamUrl(file.name, 'cortes')
+  playingSrc.value = file.play_url || mediaStreamUrl(file.id, 'cortes')
 }
 
 function onPlayerError() {
   const file = playingFile.value
   if (!file) return
-  const fallback = mediaStreamUrl(file.name, 'cortes')
+  const fallback = mediaStreamUrl(file.id, 'cortes')
   if (playingSrc.value !== fallback) {
     playingSrc.value = fallback
   }
@@ -111,14 +106,14 @@ function onPlayerError() {
 watch([playingFile, playerOpen], resolvePlayingSrc)
 
 async function refresh() {
-  if (!props.filename) {
+  if (!props.downloadId) {
     files.value = []
     return
   }
   loading.value = true
   errorMsg.value = ''
   try {
-    files.value = await listCortes(props.filename)
+    files.value = await listCortes(props.downloadId)
     brokenThumbs.value = new Set()
   } catch (err: unknown) {
     const e = err as { data?: { detail?: string }; message?: string }
@@ -128,7 +123,7 @@ async function refresh() {
   }
 }
 
-watch(() => props.filename, refresh, { immediate: true })
+watch(() => props.downloadId, refresh, { immediate: true })
 
 async function removeFile(file: FileInfo) {
   if (removing.value) return
@@ -139,13 +134,13 @@ async function removeFile(file: FileInfo) {
   })
   if (!confirmed) return
 
-  removing.value = file.name
+  removing.value = file.id
   try {
-    if (playingFile.value?.name === file.name) {
+    if (playingFile.value?.id === file.id) {
       playerOpen.value = false
       playingFile.value = null
     }
-    await deleteMedia(file.name, 'cortes')
+    await deleteMedia(file.id, 'cortes')
     await refresh()
     await swal.fire({
       icon: 'success',
@@ -211,10 +206,10 @@ defineExpose({ refresh })
 
     <div v-else class="files-grid">
       <article
-        v-for="file in files"
-        :key="file.name"
+        v-for="(file, index) in files"
+        :key="file.id"
         class="file-card"
-        :class="{ 'file-card--active': isEditing(file.name) }"
+        :class="{ 'file-card--active': isEditing(file.id) }"
       >
         <div
           class="thumb-wrap"
@@ -229,8 +224,10 @@ defineExpose({ refresh })
             class="thumb-img"
             :src="thumbSrc(file)"
             :alt="file.name"
-            loading="lazy"
-            @error="onThumbError(file.name)"
+            loading="eager"
+            :fetchpriority="index < THUMB_EAGER_COUNT ? 'high' : 'low'"
+            decoding="async"
+            @error="onThumbError(file.id)"
           >
           <div v-else class="thumb-placeholder">
             <v-icon size="48" color="grey">mdi-video-outline</v-icon>
@@ -257,7 +254,7 @@ defineExpose({ refresh })
             variant="outlined"
             rounded="lg"
             prepend-icon="mdi-play"
-            :disabled="removing === file.name"
+            :disabled="removing === file.id"
             @click="playFile(file)"
           >
             Assistir
@@ -265,14 +262,14 @@ defineExpose({ refresh })
           <v-btn
             class="action-cut"
             size="small"
-            :variant="isEditing(file.name) ? 'flat' : 'outlined'"
-            :color="isEditing(file.name) ? 'primary' : undefined"
+            :variant="isEditing(file.id) ? 'flat' : 'outlined'"
+            :color="isEditing(file.id) ? 'primary' : undefined"
             rounded="lg"
             prepend-icon="mdi-pencil"
-            :to="editLink(file.name)"
-            :disabled="removing === file.name"
+            :to="editLink(file.id)"
+            :disabled="removing === file.id"
           >
-            {{ isEditing(file.name) ? 'Editando' : 'Editar' }}
+            {{ isEditing(file.id) ? 'Editando' : 'Editar' }}
           </v-btn>
           <v-btn
             class="action-cut"
@@ -281,7 +278,7 @@ defineExpose({ refresh })
             rounded="lg"
             prepend-icon="mdi-download"
             :href="downloadHref(file)"
-            :disabled="removing === file.name"
+            :disabled="removing === file.id"
           >
             Baixar
           </v-btn>
@@ -291,7 +288,7 @@ defineExpose({ refresh })
             variant="outlined"
             rounded="lg"
             prepend-icon="mdi-delete-outline"
-            :loading="removing === file.name"
+            :loading="removing === file.id"
             :disabled="!!removing"
             @click="removeFile(file)"
           >
@@ -305,6 +302,7 @@ defineExpose({ refresh })
       v-model="playerOpen"
       :src="playingSrc"
       :title="playingFile?.name ?? ''"
+      :media-id="playingFile?.id"
       folder="cortes"
       @error="onPlayerError"
     />

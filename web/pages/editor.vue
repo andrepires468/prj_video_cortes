@@ -11,23 +11,24 @@ const {
   pollCutJob,
 } = useDownloads()
 
-const filename = computed(() => {
-  const raw = route.query.file
+const downloadId = computed(() => {
+  const raw = route.query.id
   return typeof raw === 'string' ? raw : ''
 })
 
-const cutFilename = computed(() => {
+const cutId = computed(() => {
   const raw = route.query.cut
   return typeof raw === 'string' ? raw : ''
 })
 
-const editingCut = computed(() => Boolean(cutFilename.value))
+const editingCut = computed(() => Boolean(cutId.value))
 
 const mediaFolder = computed(() => (editingCut.value ? 'cortes' : 'downloads'))
 
-const mediaName = computed(() =>
-  editingCut.value ? cutFilename.value : filename.value,
-)
+const mediaId = computed(() => (editingCut.value ? cutId.value : downloadId.value))
+
+const displayName = ref('')
+const cutDisplayName = ref('')
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const duration = ref(0)
@@ -59,7 +60,7 @@ const sortedMarkerTimes = computed(() =>
 )
 
 const canSave = computed(() => {
-  if (loading.value || exporting.value || !filename.value || duration.value <= 0) {
+  if (loading.value || exporting.value || !downloadId.value || duration.value <= 0) {
     return false
   }
   const count = markers.value.length
@@ -138,18 +139,28 @@ async function load() {
   speed.value = 1
   speedText.value = '1.0'
 
-  if (!filename.value) {
+  if (!downloadId.value) {
     errorMsg.value = 'Nenhum arquivo selecionado.'
     streamUrl.value = ''
+    displayName.value = ''
+    cutDisplayName.value = ''
     loading.value = false
     return
   }
 
-  streamUrl.value = mediaStreamUrl(mediaName.value, mediaFolder.value)
+  streamUrl.value = mediaStreamUrl(mediaId.value, mediaFolder.value)
   try {
-    const info = await getMediaInfo(mediaName.value, mediaFolder.value)
+    const info = await getMediaInfo(mediaId.value, mediaFolder.value)
     duration.value = info.duration
-    void getPlaybackUrl(mediaName.value, mediaFolder.value).then((playback) => {
+    if (editingCut.value) {
+      cutDisplayName.value = info.name
+      const original = await getMediaInfo(downloadId.value, 'downloads').catch(() => null)
+      displayName.value = original?.name || downloadId.value
+    } else {
+      displayName.value = info.name
+      cutDisplayName.value = ''
+    }
+    void getPlaybackUrl(mediaId.value, mediaFolder.value).then((playback) => {
       if (playback && !playback.includes('/api/media/stream')) {
         streamUrl.value = playback
       }
@@ -174,8 +185,8 @@ function onLoadedMetadata() {
 }
 
 function onVideoError() {
-  if (!mediaName.value) return
-  const fallback = mediaStreamUrl(mediaName.value, mediaFolder.value)
+  if (!mediaId.value) return
+  const fallback = mediaStreamUrl(mediaId.value, mediaFolder.value)
   if (streamUrl.value !== fallback) {
     streamUrl.value = fallback
   }
@@ -281,7 +292,7 @@ function selectMarker(index: number) {
 }
 
 async function exportCuts() {
-  if (!filename.value || duration.value <= 0) {
+  if (!downloadId.value || duration.value <= 0) {
     errorMsg.value = 'Nenhum arquivo selecionado.'
     return
   }
@@ -313,11 +324,11 @@ async function exportCuts() {
 
   try {
     const created = await startCuts(
-      filename.value,
+      downloadId.value,
       markers.value,
       [{ start, end }],
       speed.value,
-      cutFilename.value || undefined,
+      cutId.value || undefined,
     )
     exportJob.value = created
     const finalJob = await pollCutJob(created.id, (job) => {
@@ -343,7 +354,7 @@ function onKeydown(e: KeyboardEvent) {
   if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) {
     return
   }
-  if (loading.value || !filename.value) return
+  if (loading.value || !downloadId.value) return
 
   if (e.key === 'ArrowLeft') {
     e.preventDefault()
@@ -366,7 +377,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
 })
 
-watch([filename, cutFilename], load)
+watch([downloadId, cutId], load)
 
 function pauseMainVideo() {
   videoRef.value?.pause()
@@ -377,8 +388,8 @@ function goHome() {
 }
 
 function editOriginal() {
-  if (!filename.value) return
-  router.push({ path: '/editor', query: { file: filename.value } })
+  if (!downloadId.value) return
+  router.push({ path: '/editor', query: { id: downloadId.value } })
 }
 </script>
 
@@ -396,9 +407,9 @@ function editOriginal() {
       </v-btn>
       <div class="editor-title">
         <h1>Editor de cortes</h1>
-        <p v-if="filename" class="filename" :title="filename">{{ filename }}</p>
-        <p v-if="editingCut" class="filename filename-cut" :title="cutFilename">
-          Editando corte: {{ cutFilename }}
+        <p v-if="displayName" class="filename" :title="displayName">{{ displayName }}</p>
+        <p v-if="editingCut" class="filename filename-cut" :title="cutDisplayName">
+          Editando corte: {{ cutDisplayName }}
         </p>
       </div>
       <v-btn
@@ -470,7 +481,7 @@ function editOriginal() {
       <span>Carregando vídeo…</span>
     </div>
 
-    <template v-else-if="filename && streamUrl">
+    <template v-else-if="downloadId && streamUrl">
       <div class="preview-stage" @click="togglePlay">
         <video
           :key="streamUrl"
@@ -653,10 +664,10 @@ function editOriginal() {
     </template>
 
     <EditorCutList
-      v-if="filename"
+      v-if="downloadId"
       ref="cutListRef"
-      :filename="filename"
-      :active-cut="cutFilename"
+      :download-id="downloadId"
+      :active-cut="cutId"
       @play="pauseMainVideo"
     />
   </div>

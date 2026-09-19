@@ -28,9 +28,9 @@ export function useDownloads() {
     })
   }
 
-  async function listCortes(filename: string): Promise<FileInfo[]> {
+  async function listCortes(downloadId: string): Promise<FileInfo[]> {
     const res = await $fetch<{ files: FileInfo[] }>(`${base}/editor/cortes`, {
-      query: { filename },
+      query: { id: downloadId },
     })
     return res.files
   }
@@ -58,74 +58,74 @@ export function useDownloads() {
     })
   }
 
-  function mediaQuery(filename: string, folder: MediaFolder, extra?: Record<string, string>) {
-    const params = new URLSearchParams({ name: filename, folder, ...extra })
+  function mediaQuery(id: string, folder: MediaFolder, extra?: Record<string, string>) {
+    const params = new URLSearchParams({ id, folder, ...extra })
     return params.toString()
   }
 
   function mediaStreamUrl(
-    filename: string,
+    id: string,
     folder: MediaFolder = 'downloads',
     download = false,
   ): string {
     const extra = download ? { download: '1' } : undefined
-    return `${base}/media/stream?${mediaQuery(filename, folder, extra)}`
+    return `${base}/media/stream?${mediaQuery(id, folder, extra)}`
   }
 
-  function mediaThumbUrl(filename: string, folder: MediaFolder = 'downloads'): string {
-    return `${base}/media/thumb?${mediaQuery(filename, folder)}`
+  function mediaThumbUrl(id: string, folder: MediaFolder = 'downloads'): string {
+    return `${base}/media/thumb?${mediaQuery(id, folder)}`
   }
 
   async function getPlaybackUrl(
-    filename: string,
+    id: string,
     folder: MediaFolder = 'downloads',
     download = false,
   ): Promise<string> {
     try {
       const res = await $fetch<{ url: string }>(`${base}/media/playback`, {
-        query: { name: filename, folder, download: download ? '1' : '0' },
+        query: { id, folder, download: download ? '1' : '0' },
       })
       if (res?.url) return res.url
     } catch {
       /* cai no stream autenticado */
     }
-    return mediaStreamUrl(filename, folder, download)
+    return mediaStreamUrl(id, folder, download)
   }
 
   async function getMediaInfo(
-    filename: string,
+    id: string,
     folder: MediaFolder = 'downloads',
   ): Promise<MediaInfo> {
     return await $fetch<MediaInfo>(`${base}/media/info`, {
-      query: { name: filename, folder },
+      query: { id, folder },
     })
   }
 
   async function deleteMedia(
-    filename: string,
+    id: string,
     folder: MediaFolder = 'downloads',
   ): Promise<DeleteMediaResponse> {
     return await $fetch<DeleteMediaResponse>(`${base}/media`, {
       method: 'DELETE',
-      query: { name: filename, folder },
+      query: { id, folder },
     })
   }
 
   async function startCuts(
-    filename: string,
+    downloadId: string,
     markers: number[],
     segments?: { start: number; end: number }[],
     speed = 1,
-    sourceFilename?: string,
+    sourceCorteId?: string,
   ): Promise<CutJobInfo> {
     return await $fetch<CutJobInfo>(`${base}/editor/cuts`, {
       method: 'POST',
       body: {
-        filename,
+        download_id: downloadId,
         markers,
         segments,
         speed,
-        source_filename: sourceFilename || undefined,
+        source_corte_id: sourceCorteId || undefined,
       },
     })
   }
