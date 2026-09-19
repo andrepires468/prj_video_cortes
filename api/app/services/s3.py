@@ -44,6 +44,15 @@ def get_client() -> Minio:
     )
 
 
+def check_storage() -> None:
+    if not _endpoint():
+        raise RuntimeError("MINIO_ENDPOINT is not set")
+    if not settings.minio_bucket:
+        raise RuntimeError("MINIO_BUCKET is not set")
+    if not get_client().bucket_exists(settings.minio_bucket):
+        raise RuntimeError(f"bucket {settings.minio_bucket!r} does not exist")
+
+
 def content_type_for(filename: str) -> str:
     return _CONTENT_TYPES.get(Path(filename).suffix.lower(), "application/octet-stream")
 

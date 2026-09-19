@@ -62,6 +62,8 @@ class DeleteMediaResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = "ok"
     database: str = "ok"
+    storage: str = "ok"
+    errors: dict[str, str] = Field(default_factory=dict)
 
 
 class MediaInfo(BaseModel):

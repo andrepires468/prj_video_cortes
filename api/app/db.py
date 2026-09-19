@@ -35,5 +35,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def check_database() -> None:
+    if not (settings.mysql_host or "").strip():
+        raise RuntimeError("MYSQL_HOST is not set")
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
