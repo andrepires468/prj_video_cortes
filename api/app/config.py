@@ -1,12 +1,15 @@
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _API_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
+    """Valores vêm de variáveis de ambiente / api/.env. O default só vale se a env não existir."""
+
     model_config = SettingsConfigDict(
         env_file=_API_DIR / ".env",
         env_file_encoding="utf-8",
@@ -34,8 +37,13 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_expire_days: int = 7
     auth_cookie_name: str = "vc_token"
-    minio_cors_origins: str = "http://localhost:3101,http://127.0.0.1:3101"
+    cors_origins: str = Field(default="", validation_alias="CORS_ORIGINS")
+    minio_cors_origins: str = Field(default="", validation_alias="MINIO_CORS_ORIGINS")
     playback_url_expire_seconds: int = 7200
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
 
     @property
     def database_url(self) -> str:
