@@ -74,11 +74,8 @@ class YoutubeProvider:
 
         opts: dict[str, Any] = {
             "outtmpl": outtmpl,
-            "format": (
-                "bv*[ext=mp4]+ba[ext=m4a]/"
-                "bv*+ba/b/"
-                "bestvideo*+bestaudio/best"
-            ),
+            # Melhor vídeo + melhor áudio disponíveis (sem forçar MP4/M4A, que limita resolução).
+            "format": "bv*+ba/b/bestvideo*+bestaudio/best",
             "merge_output_format": "mp4",
             "noplaylist": True,
             "progress_hooks": [_hook],
@@ -86,11 +83,6 @@ class YoutubeProvider:
             "no_warnings": True,
             "restrictfilenames": False,
             "windowsfilenames": True,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "web", "ios"],
-                }
-            },
         }
 
         with YoutubeDL(opts) as ydl:
